@@ -516,6 +516,22 @@ def enrich_websites(max_agencies: int):
     )
 
 
+@cli.command(name="trend-report")
+@click.option("--out",  default=None, help="Output PDF path (default: data/imovela_trend_YYYYMMDD.pdf)")
+@click.option("--days", default=7, type=int, show_default=True, help="Window length")
+def trend_report(out: str, days: int):
+    """Generate the weekly Imovela PDF trend report.
+
+    One-page PDF with hero numbers (new leads / HOT / price drops /
+    super-sellers / contacted), top 10 opportunities, funnel, agency
+    leaderboard, and zone breakdown. Designed to be e-mailed Monday morning.
+    """
+    from reports.trend_pdf import generate_trend_report
+    console.print(f"[cyan]Building trend report (window={days}d)...[/cyan]")
+    path = generate_trend_report(output_path=out, days=days)
+    console.print(f"[green]✓ PDF saved → {path}[/green]")
+
+
 @cli.command(name="detect-price-drops")
 @click.option("--lookback-days",      default=30, type=int, show_default=True)
 @click.option("--recent-window-days", default=14, type=int, show_default=True)

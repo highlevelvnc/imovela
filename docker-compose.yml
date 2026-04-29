@@ -1,0 +1,71 @@
+# ─── Imovela — full stack ────────────────────────────────────────────────────
+# Three services from a single image:
+#   * dashboard  — Streamlit UI on :8501
+#   * scheduler  — APScheduler running daily scraping at 08:00 PT
+#   * postgres   — opt-in via the `postgres` profile (default: SQLite volume)
+#
+# Quickstart:
+#   docker compose up -d                    # SQLite mode (default)
+#   docker compose --profile postgres up    # PostgreSQL mode
+#
+# All persistent state lives in named volumes so `docker compose down`
+# never loses data.
+
+services:
+
+  dashboard:
+    build: .
+    image: imovela:latest
+    container_name: imovela-dashboard
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8501:8501"
+    volumes:
+      - imovela-data:/app/data
+      - imovela-logs:/app/logs
+    networks: [imovela]
+    depends_on:
+      - scheduler
+
+  scheduler:
+    image: imovela:latest
+    container_name: imovela-scheduler
+    restart: unless-stopped
+    env_file: .env
+    command: ["python", "main.py", "scheduler"]
+    volumes:
+      - imovela-data:/app/data
+      - imovela-logs:/app/logs
+    networks: [imovela]
+
+  # ── Optional Postgres (profile-gated) ────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: imovela-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-imovela}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-imovela}
+      POSTGRES_DB:       ${POSTGRES_DB:-imovela}
+    ports:
+      - "5432:5432"
+    volumes:
+      - imovela-pg:/var/lib/postgresql/data
+    networks: [imovela]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-imovela}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+volumes:
+  imovela-data:
+  imovela-logs:
+  imovela-pg:
+
+networks:
+  imovela:
+    driver: bridge

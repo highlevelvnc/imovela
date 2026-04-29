@@ -31,6 +31,12 @@ openpyxl==3.1.5            # xlsx export for export-contacts / export-commercial
 # ─── ML / Classification ─────────────────────────────────────────────────────
 scikit-learn>=1.4.0        # owner_classifier (TF-IDF + LogReg)
 
+# ─── BI / Reports ────────────────────────────────────────────────────────────
+folium==0.17.0             # interactive maps for the BI tab
+streamlit-folium==0.21.1   # embed Folium in Streamlit
+reportlab==4.2.2           # weekly trend report PDFs
+matplotlib==3.9.0          # charts inside the PDF
+
 # ─── Notifications ───────────────────────────────────────────────────────────
 # email via smtplib (stdlib) — no extra dep needed
 # telegram:

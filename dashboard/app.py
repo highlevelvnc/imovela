@@ -1310,11 +1310,255 @@ hr {
 st.markdown(_CSS_POLISH, unsafe_allow_html=True)
 
 
+# ─── CSS: UX practicality layer ──────────────────────────────────────────────
+# Final layer focused on speed-of-use rather than aesthetics:
+#   * Compact card density toggle-friendly classes
+#   * Sticky filter bar (scrolls with page, always reachable)
+#   * Empty-state illustrations (no more bare "Sem dados")
+#   * Quick-action keyboard hints
+#   * "New since last visit" pulse for fresh leads
+#   * Reduced motion mode for users with prefers-reduced-motion
+#   * Stronger focus rings + larger click targets on small screens
+
+_CSS_UX = """<style>
+/* ──── Reduced motion respect ──────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+    .stApp::before { animation: none !important; }
+}
+
+/* ──── Sticky filter bar — sidebar bottom CTA stays visible ────────────── */
+section[data-testid="stSidebar"] > div > div > div:last-child {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(180deg, transparent 0%, var(--ink-10) 35%);
+    padding-top: 1rem;
+}
+
+/* ──── Hover preview on cards ─────────────────────────────────────────── */
+.card { cursor: default; }
+.card:focus-within {
+    outline: 2px solid rgba(52,211,153,.4);
+    outline-offset: 2px;
+}
+
+/* ──── Empty-state styling ─────────────────────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    background:
+        linear-gradient(180deg, rgba(29,39,71,.25) 0%, rgba(11,16,32,.4) 100%);
+    border: 1px dashed rgba(255,255,255,.08);
+    border-radius: 16px;
+    margin: 24px 0;
+}
+.empty-state .icon {
+    font-size: 2.4rem;
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+            background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 14px;
+    display: inline-block;
+    animation: float 4s ease-in-out infinite;
+}
+.empty-state .title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    color: var(--ice);
+    font-size: 1.05rem;
+    margin-bottom: 6px;
+}
+.empty-state .hint {
+    color: var(--smoke);
+    font-size: .85rem;
+    line-height: 1.5;
+}
+
+/* ──── Fresh badge — pulse for new-since-last-visit ────────────────────── */
+.fresh-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--mint);
+    box-shadow: 0 0 0 0 var(--mint);
+    animation: glowPulse 2s infinite;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+/* ──── Click targets larger on touch ───────────────────────────────────── */
+@media (hover: none) {
+    .stButton > button,
+    section[data-testid="stSidebar"] [role="radiogroup"] label {
+        min-height: 44px !important;     /* iOS HIG minimum */
+    }
+}
+
+/* ──── Number-up reveal on metric values ───────────────────────────────── */
+@keyframes counter {
+    from { opacity: 0; transform: scale(.92); }
+    to   { opacity: 1; transform: scale(1); }
+}
+[data-testid="stMetricValue"] {
+    animation: counter .6s cubic-bezier(.34,1.56,.64,1) both;
+}
+
+/* ──── Keyboard hint pills (use class="kbd") ──────────────────────────── */
+.kbd {
+    display: inline-block;
+    font-family: 'Space Grotesk', monospace;
+    font-size: .68rem;
+    font-weight: 600;
+    padding: 1px 7px;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.12);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    color: var(--fog);
+    line-height: 1.5;
+    margin: 0 2px;
+}
+
+/* ──── Quick-action bar (used in lead detail expanders) ────────────────── */
+.quick-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 12px;
+}
+.quick-bar a {
+    text-decoration: none !important;
+    border-bottom: none !important;
+    padding: 6px 12px;
+    background: rgba(29,39,71,.5);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 8px;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--fog) !important;
+    transition: all .2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.quick-bar a:hover {
+    transform: translateY(-1px);
+    background: rgba(52,211,153,.12);
+    border-color: rgba(52,211,153,.4);
+    color: var(--mint) !important;
+    box-shadow: 0 6px 16px -8px rgba(52,211,153,.4);
+}
+.quick-bar a.qa-phone:hover     { background: rgba(52,211,153,.12);  color: var(--mint) !important; }
+.quick-bar a.qa-whatsapp:hover  { background: rgba(34,211,153,.15);  color: #25d366 !important; border-color: rgba(37,211,102,.4); }
+.quick-bar a.qa-email:hover     { background: rgba(56,189,248,.12);  color: var(--sky) !important; }
+.quick-bar a.qa-portal:hover    { background: rgba(167,139,250,.12); color: var(--violet) !important; }
+
+/* ──── Sticky stage shortcuts on Oportunidades page ────────────────────── */
+.stage-bar {
+    position: sticky; top: 8px;
+    z-index: 5;
+    background:
+        linear-gradient(180deg, var(--ink-00) 0%, rgba(5,8,16,.85) 100%);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,.06);
+    margin-bottom: 16px;
+}
+
+/* ──── Toast positioning, top-right unobtrusive ────────────────────────── */
+.stToast {
+    bottom: auto !important;
+    top: 16px !important;
+    right: 16px !important;
+}
+
+/* ──── Compact-mode adjustment on narrow viewports ─────────────────────── */
+@media (max-width: 1100px) {
+    .main .block-container { padding: 0 1rem 4rem !important; }
+    .hero { padding: 20px 22px; }
+    [data-testid="stMetricValue"] { font-size: 1.65rem !important; }
+    .imovela-name { font-size: 1.1rem; }
+}
+
+/* ──── Shimmer skeleton placeholder ─────────────────────────────────────
+   Use class="sk sk-line", "sk sk-card" while data is loading. */
+.sk {
+    background: linear-gradient(90deg,
+        rgba(29,39,71,.4) 0%,
+        rgba(52,211,153,.08) 50%,
+        rgba(29,39,71,.4) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+    border-radius: 8px;
+    display: block;
+}
+.sk-line { height: 14px; margin: 8px 0; }
+.sk-card { height: 92px; margin: 12px 0; }
+.sk-orb  { width: 56px; height: 56px; border-radius: 50%; }
+</style>"""
+
+st.markdown(_CSS_UX, unsafe_allow_html=True)
+
+
 # ─── Helper functions ──────────────────────────────────────────────────────────
 
 def label_emoji(label: str) -> str:
     """Plain-text emoji — safe for st.expander, st.radio, etc."""
     return {"HOT": "🔴", "WARM": "🟡", "COLD": "🔵"}.get(label, "⚪")
+
+
+def empty_state(icon: str = "◆", title: str = "Sem dados",
+                hint: str = "Corre o pipeline para alimentar o sistema.") -> None:
+    """Render an animated empty-state card. Drop-in for `st.caption`."""
+    st.markdown(
+        f'<div class="empty-state">'
+        f'  <div class="icon">{icon}</div>'
+        f'  <div class="title">{title}</div>'
+        f'  <div class="hint">{hint}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def quick_actions_bar(phone: str | None, email: str | None,
+                      url: str | None = None, whatsapp: str | None = None) -> None:
+    """One-tap outreach buttons: call, WhatsApp, e-mail, portal listing."""
+    parts: list[str] = []
+    if phone:
+        digits = phone.lstrip("+").replace(" ", "")
+        parts.append(
+            f'<a class="qa-phone" href="tel:{phone}" title="Ligar">'
+            f'📞 {phone}</a>'
+        )
+        wa_target = whatsapp or f"+{digits}" if digits else None
+        if wa_target:
+            wa_digits = wa_target.lstrip("+").replace(" ", "")
+            parts.append(
+                f'<a class="qa-whatsapp" href="https://wa.me/{wa_digits}" '
+                f'target="_blank" title="WhatsApp">💬 WhatsApp</a>'
+            )
+    if email:
+        parts.append(
+            f'<a class="qa-email" href="mailto:{email}" title="Email">'
+            f'✉ {email}</a>'
+        )
+    if url:
+        parts.append(
+            f'<a class="qa-portal" href="{url}" target="_blank" '
+            f'rel="noopener" title="Abrir anúncio">🔗 Anúncio</a>'
+        )
+    if parts:
+        st.markdown(
+            f'<div class="quick-bar">{"".join(parts)}</div>',
+            unsafe_allow_html=True,
+        )
 
 def badge_html(label: str) -> str:
     """HTML badge — only inside st.markdown(unsafe_allow_html=True)."""
@@ -1694,6 +1938,7 @@ with st.sidebar:
         "&#128202;  Dashboard",
         "&#127919;  Oportunidades",
         "&#128203;  CRM",
+        "&#128205;  Mapa & BI",
         "&#128268;  Pre-Market",
         "&#9881;  Motor",
         "&#128228;  Exportar",
@@ -2550,6 +2795,206 @@ elif page == "&#128203;  CRM":
             unsafe_allow_html=True,
         )
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: MAPA & BI — heatmap + funnel + agency leaderboard
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "&#128205;  Mapa & BI":
+
+    from reports.bi import (
+        agency_leaderboard,
+        conversion_funnel,
+        recent_signal_summary,
+        zone_heatmap_data,
+    )
+
+    summary = recent_signal_summary(window_days=7)
+
+    st.markdown(
+        f'<div class="hero">'
+        f'  <div class="hero-title">'
+        f'    <span class="hero-title-accent">Mapa &amp; BI</span> '
+        f'    <span style="color:var(--smoke);font-weight:500;">·</span> '
+        f'    Última semana'
+        f'  </div>'
+        f'  <div class="hero-sub">'
+        f'    Visão consolidada do funil, top agências e geografia das oportunidades.'
+        f'  </div>'
+        f'  <div style="display:flex;gap:14px;margin-top:18px;flex-wrap:wrap;">'
+        f'    <div class="intel-box" style="margin:0;min-width:120px;text-align:center;">'
+        f'      <div class="intel-lbl">Novos 7d</div>'
+        f'      <div class="intel-val">{summary["new_leads_7d"]}</div></div>'
+        f'    <div class="intel-box" style="margin:0;min-width:120px;text-align:center;">'
+        f'      <div class="intel-lbl">Novos HOT</div>'
+        f'      <div class="intel-val" style="color:var(--rose);">{summary["new_hot_7d"]}</div></div>'
+        f'    <div class="intel-box" style="margin:0;min-width:120px;text-align:center;">'
+        f'      <div class="intel-lbl">Quedas preço</div>'
+        f'      <div class="intel-val" style="color:var(--amber);">{summary["price_drops_7d"]}</div></div>'
+        f'    <div class="intel-box" style="margin:0;min-width:130px;text-align:center;">'
+        f'      <div class="intel-lbl">Super-sellers</div>'
+        f'      <div class="intel-val" style="color:var(--violet);">{summary["super_sellers"]}</div></div>'
+        f'    <div class="intel-box" style="margin:0;min-width:120px;text-align:center;">'
+        f'      <div class="intel-lbl">Contactados</div>'
+        f'      <div class="intel-val" style="color:var(--mint);">{summary["contacted"]}</div></div>'
+        f'  </div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ─── Heatmap ──────────────────────────────────────────────────────────
+    st.markdown('<div class="lbl-section">Mapa de oportunidades</div>', unsafe_allow_html=True)
+    try:
+        import folium
+        from streamlit_folium import st_folium
+
+        zone_data = zone_heatmap_data(min_count=1)
+        if zone_data:
+            avg_lat = sum(z["lat"] for z in zone_data) / len(zone_data)
+            avg_lon = sum(z["lon"] for z in zone_data) / len(zone_data)
+            m = folium.Map(
+                location=[avg_lat, avg_lon],
+                zoom_start=10,
+                tiles="CartoDB dark_matter",
+                control_scale=True,
+            )
+            mx = max(z["count"] for z in zone_data) or 1
+            for z in zone_data:
+                # Radius scaled by lead count; color by avg score
+                radius = 10 + 30 * (z["count"] / mx)
+                avg = z["avg_score"]
+                if avg >= 60:
+                    color, fill = "#fb7185", "rgba(251,113,133,.55)"
+                elif avg >= 40:
+                    color, fill = "#fbbf24", "rgba(251,191,36,.5)"
+                else:
+                    color, fill = "#38bdf8", "rgba(56,189,248,.45)"
+                folium.CircleMarker(
+                    location=[z["lat"], z["lon"]],
+                    radius=radius,
+                    color=color,
+                    fill=True,
+                    fill_color=fill,
+                    fill_opacity=0.7,
+                    weight=2,
+                    popup=folium.Popup(
+                        f"<div style='font-family:Inter,sans-serif;'>"
+                        f"<b style='font-size:14px;'>{z['zone']}</b><br/>"
+                        f"<span style='color:#475569;'>Leads:</span> <b>{z['count']}</b><br/>"
+                        f"<span style='color:#475569;'>HOT:</span> <b style='color:#fb7185;'>{z['hot_count']}</b><br/>"
+                        f"<span style='color:#475569;'>Score:</span> <b>{z['avg_score']:.1f}</b><br/>"
+                        f"<span style='color:#475569;'>€/m²:</span> <b>{int(z['avg_price_per_m2'] or 0):,}</b>"
+                        f"</div>",
+                        max_width=240,
+                    ),
+                ).add_to(m)
+            st_folium(m, height=440, use_container_width=True, returned_objects=[])
+        else:
+            st.caption("Sem dados geográficos suficientes para desenhar o mapa.")
+    except ImportError:
+        st.warning(
+            "Mapa requer `folium` + `streamlit-folium`. "
+            "Corre `pip install -r requirements.txt`."
+        )
+
+    st.divider()
+
+    # ─── Funnel + Leaderboard side-by-side ────────────────────────────────
+    f_col, l_col = st.columns([2, 3], gap="large")
+
+    with f_col:
+        st.markdown('<div class="lbl-section">Funil de conversão</div>', unsafe_allow_html=True)
+        funnel = conversion_funnel()
+        if funnel:
+            top_count = max((r["count"] for r in funnel), default=1)
+            for row in funnel:
+                pct = row["count"] / top_count if top_count else 0
+                bar_w = max(int(100 * pct), 3)
+                stage_color = {
+                    "captured":   "#38bdf8",
+                    "qualified":  "#a78bfa",
+                    "contacted":  "#fbbf24",
+                    "interested": "#fb923c",
+                    "negotiating":"#f472b6",
+                    "closed":     "#34d399",
+                }.get(row["key"], "#94a3b8")
+                st.markdown(
+                    f'<div style="margin-bottom:14px;">'
+                    f'  <div style="display:flex;justify-content:space-between;'
+                    f'              align-items:baseline;margin-bottom:4px;">'
+                    f'    <span style="color:var(--fog);font-weight:600;font-size:.88rem;">{row["label"]}</span>'
+                    f'    <span style="color:var(--smoke);font-family:\'Space Grotesk\';'
+                    f'                  font-weight:700;font-size:.88rem;">{row["count"]}</span>'
+                    f'  </div>'
+                    f'  <div style="background:rgba(11,16,32,.6);border-radius:6px;height:10px;'
+                    f'              overflow:hidden;border:1px solid rgba(255,255,255,.04);">'
+                    f'    <div style="height:100%;width:{bar_w}%;'
+                    f'                background:linear-gradient(90deg, {stage_color}, transparent 95%);'
+                    f'                box-shadow:0 0 8px -1px {stage_color}; border-radius:6px;"></div>'
+                    f'  </div>'
+                    f'  <div style="font-size:.65rem;color:var(--dust);margin-top:3px;">'
+                    f'    {row["pct_of_top"]}% do topo'
+                    f'  </div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("Pipeline ainda vazio.")
+
+    with l_col:
+        st.markdown('<div class="lbl-section">Top agências por volume</div>', unsafe_allow_html=True)
+        leaders = agency_leaderboard(limit=20, min_listings=3)
+        if leaders:
+            df_leaders = pd.DataFrame(leaders)
+            df_leaders.columns = [
+                "Agência", "Listings", "HOT", "Score méd.", "Preço méd.",
+                "€/m² méd.", "% c/ contacto",
+            ]
+            st.dataframe(
+                df_leaders,
+                use_container_width=True,
+                height=440,
+                hide_index=True,
+                column_config={
+                    "Listings":      st.column_config.NumberColumn(format="%d"),
+                    "HOT":           st.column_config.NumberColumn(format="%d"),
+                    "Score méd.":    st.column_config.NumberColumn(format="%.1f"),
+                    "Preço méd.":    st.column_config.NumberColumn(format="€%d"),
+                    "€/m² méd.":     st.column_config.NumberColumn(format="€%d"),
+                    "% c/ contacto": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%"),
+                },
+            )
+        else:
+            st.caption("Sem agências com volume mínimo de 3 listagens.")
+
+    st.divider()
+
+    # ─── PDF report download ──────────────────────────────────────────────
+    st.markdown('<div class="lbl-section">Relatório PDF semanal</div>', unsafe_allow_html=True)
+    rcol1, rcol2 = st.columns([1, 3])
+    with rcol1:
+        if st.button("Gerar relatório", use_container_width=True):
+            try:
+                from reports.trend_pdf import generate_trend_report
+                with st.spinner("A compor o PDF..."):
+                    path = generate_trend_report(days=7)
+                st.session_state["__last_trend_pdf"] = str(path)
+                st.success(f"Pronto: {path.name}")
+            except Exception as e:
+                st.error(f"Falha: {e}")
+    with rcol2:
+        last_path = st.session_state.get("__last_trend_pdf")
+        if last_path:
+            from pathlib import Path as _P
+            p = _P(last_path)
+            if p.exists():
+                with open(p, "rb") as fh:
+                    st.download_button(
+                        "Descarregar último PDF",
+                        data=fh.read(),
+                        file_name=p.name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: MOTOR

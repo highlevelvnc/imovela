@@ -464,6 +464,7 @@ class BaseScraper(ABC):
             try:
                 resp = client.get(url, params=params)
                 if resp.status_code == 200:
+                    self.rate_limiter.record_success()
                     return resp
                 if resp.status_code == 429:
                     log.warning("[{src}] 429 Too Many Requests — backoff", src=self.SOURCE)
