@@ -37,6 +37,9 @@ data/*.db-wal
 # Trained ML models — large pickles, regenerable via `train-owner-classifier`
 data/*.pkl
 
+# Facebook Marketplace cookie state — sensitive (impersonation risk)
+data/.fb_state.json
+
 # Generated exports — regenerable, not source
 data/contactos_*.csv
 data/contactos_*.xlsx

@@ -217,6 +217,121 @@ SOURCE_REGISTRY: dict[str, SourceMeta] = {
         ),
     ),
 
+    # ── Bank-owned real estate (REOs) ────────────────────────────────────────
+    # Properties banks acquired through default proceedings. Typically priced
+    # 15-30% below open-market comparables; motivated sellers under accounting
+    # deadlines. National listings — no per-zone URL filtering on portal side.
+
+    "cgd_imoveis": SourceMeta(
+        key           = "cgd_imoveis",
+        name          = "Caixa Geral de Depósitos — Imóveis",
+        base_url      = "https://www.imobiliariocaixa.pt",
+        scraper_class = "scrapers.banks.CGDImoveisScraper",
+        category      = "bank_reo",
+        owner_bias    = "bank",
+        contact_rate  = 0.95,                # bank publishes phone + email directly
+        zones         = {z: "national" for z in (
+            "Lisboa", "Cascais", "Sintra", "Almada", "Seixal", "Sesimbra"
+        )},
+        is_active = True,
+        notes = (
+            "Angular SPA + Incapsula WAF — requires Playwright with stealth. "
+            "Selectors validated 2026-04 on /pesquisa-de-imoveis; verify before "
+            "production runs because the portal redesigns ~quarterly."
+        ),
+    ),
+
+    "millennium_imoveis": SourceMeta(
+        key           = "millennium_imoveis",
+        name          = "Millennium BCP — Imóveis em Promoção",
+        base_url      = "https://imoveis.millenniumbcp.pt",
+        scraper_class = "scrapers.banks.MillenniumImoveisScraper",
+        category      = "bank_reo",
+        owner_bias    = "bank",
+        contact_rate  = 0.90,
+        zones         = {z: "national" for z in (
+            "Lisboa", "Cascais", "Sintra", "Almada", "Seixal", "Sesimbra"
+        )},
+        is_active = True,
+        notes = "Bootstrap card grid with ASP.NET back-end. Playwright required.",
+    ),
+
+    "novobanco_imoveis": SourceMeta(
+        key           = "novobanco_imoveis",
+        name          = "Novo Banco — Imóveis em Promoção",
+        base_url      = "https://imoveis.novobanco.pt",
+        scraper_class = "scrapers.banks.NovobancoImoveisScraper",
+        category      = "bank_reo",
+        owner_bias    = "bank",
+        contact_rate  = 0.85,
+        zones         = {z: "national" for z in (
+            "Lisboa", "Cascais", "Sintra", "Almada", "Seixal", "Sesimbra"
+        )},
+        is_active = True,
+        notes = "React/Next.js SPA. Playwright required.",
+    ),
+
+    "santander_imoveis": SourceMeta(
+        key           = "santander_imoveis",
+        name          = "Santander — Imóveis em Promoção",
+        base_url      = "https://imoveis.santander.pt",
+        scraper_class = "scrapers.banks.SantanderImoveisScraper",
+        category      = "bank_reo",
+        owner_bias    = "bank",
+        contact_rate  = 0.95,
+        zones         = {z: "national" for z in (
+            "Lisboa", "Cascais", "Sintra", "Almada", "Seixal", "Sesimbra"
+        )},
+        is_active = True,
+        notes = "ASP.NET MVC + Incapsula. Playwright with stealth profile required.",
+    ),
+
+    # ── Public auctions (judicial / fiscal / bankruptcy) ─────────────────────
+    "leiloes": SourceMeta(
+        key           = "leiloes",
+        name          = "e-leiloes.pt — Leilões Judiciais",
+        base_url      = "https://www.e-leiloes.pt",
+        scraper_class = "scrapers.leiloes.LeiloesScraper",
+        category      = "auction",
+        owner_bias    = "auction",
+        contact_rate  = 0.80,                # solicitator phone usually published
+        zones         = {z: "national" for z in (
+            "Lisboa", "Cascais", "Sintra", "Almada", "Seixal", "Sesimbra"
+        )},
+        is_active = True,
+        notes = (
+            "Vue.js SPA — requires Playwright. CategoriaPesquisa=2 filters to "
+            "Imóveis. Auction listings carry auction_date_raw + auction_status_raw "
+            "fields used by the scorer to weight urgency."
+        ),
+    ),
+
+    # ── Facebook Marketplace (opt-in via cookie file) ────────────────────────
+    "facebook_marketplace": SourceMeta(
+        key           = "facebook_marketplace",
+        name          = "Facebook Marketplace — Property",
+        base_url      = "https://www.facebook.com/marketplace",
+        scraper_class = "scrapers.facebook_marketplace.FacebookMarketplaceScraper",
+        category      = "social",
+        owner_bias    = "fsbo",
+        contact_rate  = 0.20,                # contact only via Messenger DM
+        zones         = {
+            "Lisboa":  "111777152182368",
+            "Cascais": "108277045871731",
+            "Sintra":  "108160195880076",
+            "Almada":  "111712752199706",
+            "Seixal":  "108108025884060",
+        },
+        is_active = True,
+        notes = (
+            "OPT-IN: requires manual login first to persist cookies. "
+            "Run `python -m scrapers.facebook_marketplace --login` once. "
+            "Without cookies the scraper exits early; downstream pipeline "
+            "remains healthy. FB ships A/B selector variants weekly — "
+            "expect periodic selector tuning."
+        ),
+    ),
+
     # ── Planned scrapers (is_active=False — not yet implemented) ─────────────
 
     "era": SourceMeta(

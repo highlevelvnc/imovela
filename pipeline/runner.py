@@ -135,6 +135,12 @@ class PipelineRunner:
             IdealistaScraper,
             SapoScraper,
             CustojustoScraper,
+            CGDImoveisScraper,
+            MillenniumImoveisScraper,
+            NovobancoImoveisScraper,
+            SantanderImoveisScraper,
+            LeiloesScraper,
+            FacebookMarketplaceScraper,
         )
 
         scraper_map = {
@@ -146,6 +152,15 @@ class PipelineRunner:
             "idealista":       IdealistaScraper,
             "sapo":            SapoScraper,
             "custojusto":      CustojustoScraper,
+            # Bank-owned real-estate portals (Playwright + stealth)
+            "cgd_imoveis":         CGDImoveisScraper,
+            "millennium_imoveis":  MillenniumImoveisScraper,
+            "novobanco_imoveis":   NovobancoImoveisScraper,
+            "santander_imoveis":   SantanderImoveisScraper,
+            # Public auctions (judicial / fiscal / bankruptcy)
+            "leiloes":             LeiloesScraper,
+            # Facebook Marketplace (opt-in via cookie file)
+            "facebook_marketplace": FacebookMarketplaceScraper,
         }
 
         for source in sources:

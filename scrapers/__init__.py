@@ -7,6 +7,18 @@ from .idealista import IdealistaScraper
 from .sapo import SapoScraper
 from .custojusto import CustojustoScraper
 
+# Bank-owned real-estate portals (REOs) — opt-in via sources arg
+from .banks import (
+    CGDImoveisScraper,
+    MillenniumImoveisScraper,
+    NovobancoImoveisScraper,
+    SantanderImoveisScraper,
+)
+
+# Auctions and Facebook Marketplace
+from .leiloes import LeiloesScraper
+from .facebook_marketplace import FacebookMarketplaceScraper
+
 __all__ = [
     "OLXScraper",
     "OLXMarketplaceScraper",
@@ -16,4 +28,10 @@ __all__ = [
     "IdealistaScraper",
     "SapoScraper",
     "CustojustoScraper",
+    "CGDImoveisScraper",
+    "MillenniumImoveisScraper",
+    "NovobancoImoveisScraper",
+    "SantanderImoveisScraper",
+    "LeiloesScraper",
+    "FacebookMarketplaceScraper",
 ]

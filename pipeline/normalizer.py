@@ -461,6 +461,37 @@ class Normalizer:
                 result = self._normalize_custojusto(raw)
             elif source == "linkedin":
                 result = self._normalize_linkedin(raw)
+            elif source in ("cgd_imoveis", "millennium_imoveis",
+                            "novobanco_imoveis", "santander_imoveis"):
+                # All four bank portals share the same canonical schema
+                # (set by BankBaseScraper); the generic path keeps fields
+                # like agency_name, owner_type=bank, contact_phone intact.
+                result = self._normalize_generic(raw, source)
+                if result:
+                    result["owner_type"] = "agency"   # banks operate as agencies
+                    result["lead_type"]  = "bank_reo"
+                    result["is_owner"]   = False
+            elif source == "leiloes":
+                result = self._normalize_generic(raw, source)
+                if result:
+                    result["owner_type"] = "auction"
+                    result["lead_type"]  = "auction"
+                    result["is_owner"]   = False
+                    # Promote auction-specific raw fields into the lead row
+                    result["product_title"] = raw.get("auction_status_raw") or None
+                    auction_date = raw.get("auction_date_raw") or ""
+                    if auction_date:
+                        result["product_value"] = None  # value lives in price_raw
+            elif source == "facebook_marketplace":
+                result = self._normalize_generic(raw, source)
+                if result:
+                    result["owner_type"] = "fsbo"
+                    result["lead_type"]  = "fsbo"
+                    result["is_owner"]   = True
+                    # Messenger DM link captured as contact_website (next-best
+                    # outreach channel until phone/email are obtained out-of-band)
+                    if raw.get("contact_messenger") and not result.get("contact_website"):
+                        result["contact_website"] = raw["contact_messenger"][:200]
             else:
                 log.warning("Unknown source: {s}", s=source)
                 result = self._normalize_generic(raw, source)
