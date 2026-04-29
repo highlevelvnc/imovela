@@ -137,7 +137,7 @@ def _parse_ad_count(text: str) -> Optional[int]:
 
 
 def _fetch_profile(client: httpx.Client, profile_url: str) -> Optional[dict]:
-    """Fetch one profile page and extract counters + member date."""
+    """Fetch one profile page and extract counters + member date + phone."""
     try:
         resp = client.get(profile_url)
         if resp.status_code != 200 or not resp.text:
@@ -158,17 +158,34 @@ def _fetch_profile(client: httpx.Client, profile_url: str) -> Optional[dict]:
     if ad_count is None:
         cards = _select_all(soup, _PROFILE_SELECTORS["ad_card"])
         if cards:
-            # Page 1 of OLX profile typically shows up to 24 cards. If the
-            # full count isn't displayed elsewhere, this lower bound is still
-            # informative for the super-seller heuristic.
             ad_count = len(cards)
 
     member_el = _select_first(soup, _PROFILE_SELECTORS["member_since"])
     member_since = member_el.get_text(" ", strip=True)[:80] if member_el else None
 
+    # Phone discovery on the profile page itself — sometimes super-sellers
+    # publish a real number in their profile bio that the listing pages don't
+    # carry. Prefer non-relay candidates.
+    real_phone = None
+    try:
+        from utils.phone import best_phone
+        from utils.phone_discovery import discover_phones, discover_whatsapp
+
+        non_relay = discover_phones(resp.text, soup=soup, allow_relay=False)
+        if non_relay:
+            best = best_phone(non_relay)
+            if best and best.valid and best.phone_type in ("mobile", "landline"):
+                real_phone = best.canonical
+        wa_list = discover_whatsapp(resp.text, soup=soup)
+    except Exception as e:
+        log.debug("[seller_profile] phone discovery: {e}", e=e)
+        wa_list = []
+
     return {
         "ad_count":     ad_count,
         "member_since": member_since,
+        "real_phone":   real_phone,
+        "whatsapp":     wa_list[0] if wa_list else None,
     }
 
 
@@ -255,17 +272,17 @@ class SellerProfileEnricher:
         return stats
 
     def _apply(self, profile_url: str, data: dict, stats: dict) -> None:
-        from sqlalchemy import update
-
         from storage.database import get_db
         from storage.models import Lead
+        from utils.phone import best_phone, validate_pt_phone
 
         ad_count    = data.get("ad_count")
         member_text = data.get("member_since")
+        real_phone  = data.get("real_phone")
+        wa          = data.get("whatsapp")
         super_flag  = bool(ad_count and ad_count >= SUPER_FLAG_THRESHOLD)
 
         with get_db() as db:
-            # Identify leads belonging to this profile
             affected = db.query(Lead).filter(
                 Lead.seller_profile_url == profile_url
             ).all()
@@ -275,8 +292,35 @@ class SellerProfileEnricher:
                 lead.seller_member_since   = member_text
                 lead.seller_super_flag     = super_flag
 
-                # Reclassify fsbo → agency when the active-ad count exceeds the
-                # camouflaged-agency threshold. Never upgrades agencies to fsbo.
+                # ── Phone upgrade from profile ────────────────────────────
+                # Only overwrite a stored phone when the new candidate is
+                # strictly better (mobile > landline > relay). This is the
+                # cross-listing channel that turns OLX 6XX relay numbers
+                # into real direct mobile when the seller has one in their
+                # bio.
+                if real_phone:
+                    current = lead.contact_phone
+                    if not current:
+                        lead.contact_phone        = real_phone
+                        lead.contact_source       = "olx_profile"
+                        lead.phone_type           = validate_pt_phone(real_phone).phone_type
+                        lead.contact_confidence   = 90
+                        stats.setdefault("phone_upgraded", 0)
+                        stats["phone_upgraded"] += 1
+                    else:
+                        picked = best_phone([current, real_phone])
+                        if picked and picked.canonical == real_phone and picked.canonical != current:
+                            lead.contact_phone      = real_phone
+                            lead.contact_source     = "olx_profile"
+                            lead.phone_type         = picked.phone_type
+                            lead.contact_confidence = picked.confidence
+                            stats.setdefault("phone_upgraded", 0)
+                            stats["phone_upgraded"] += 1
+
+                if wa and not lead.contact_whatsapp:
+                    lead.contact_whatsapp = wa
+
+                # ── Reclassify camouflaged-agency profiles ────────────────
                 if (
                     ad_count is not None
                     and ad_count >= AGENCY_RECLASSIFY_THRESHOLD

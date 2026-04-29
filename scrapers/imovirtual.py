@@ -33,6 +33,8 @@ from config.zone_config import get_pw_limit, PW_INTER_FETCH_DELAY_MIN, PW_INTER_
 from scrapers.base import BaseScraper, PlaywrightPhoneRevealer
 from utils.email_extractor import extract_first_email
 from utils.logger import get_logger
+from utils.phone import best_phone, validate_pt_phone
+from utils.phone_discovery import discover_phones, discover_whatsapp
 
 log = get_logger(__name__)
 
@@ -340,14 +342,29 @@ class ImovirtualScraper(BaseScraper):
             soup = BeautifulSoup(resp.text, "html.parser")
             result: dict = {}
 
-            # ── Phone — tel: href is most reliable ──────────────────────────
-            for a in soup.select("a[href^='tel:']"):
-                href = a.get("href", "")
-                phone = href.replace("tel:", "").strip()
-                # Require at least 9 digits (PT number)
-                if phone and len(phone.replace(" ", "").lstrip("+")) >= 9:
-                    result["contact_phone"] = phone
-                    break
+            # ── Phone — aggressive multi-source discovery ──────────────────
+            # discover_phones walks WhatsApp links, microdata, data-* attrs,
+            # JSON-LD, inline scripts, meta tags, description. Priority:
+            # mobile > landline > relay. We try real-only first; only fall
+            # back to including relay numbers when nothing better surfaced.
+            wa_candidates = discover_whatsapp(resp.text, soup=soup)
+            if wa_candidates:
+                result["contact_whatsapp"] = wa_candidates[0]
+
+            phones_real = discover_phones(resp.text, soup=soup, allow_relay=False)
+            if phones_real:
+                picked = best_phone(phones_real)
+                if picked and picked.valid:
+                    result["contact_phone"] = picked.canonical
+                    result["phone_type"]    = picked.phone_type
+                    result["contact_confidence"] = picked.confidence
+            if not result.get("contact_phone"):
+                phones_any = discover_phones(resp.text, soup=soup, allow_relay=True)
+                picked = best_phone(phones_any) if phones_any else None
+                if picked and picked.valid:
+                    result["contact_phone"] = picked.canonical
+                    result["phone_type"]    = picked.phone_type
+                    result["contact_confidence"] = picked.confidence
 
             # ── Contact/agency name ──────────────────────────────────────────
             name_el = (

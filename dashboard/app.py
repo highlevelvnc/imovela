@@ -1507,6 +1507,176 @@ section[data-testid="stSidebar"] > div > div > div:last-child {
 st.markdown(_CSS_UX, unsafe_allow_html=True)
 
 
+# ─── CSS: micro-interactions + delight layer ─────────────────────────────────
+# Final flourish — focused on the small details that make the UI feel
+# alive: hover ripples, focus halos, command-bar feel, real-time sparkle
+# on freshly-arrived data, success confetti for action completions.
+
+_CSS_DELIGHT = """<style>
+/* ──── Hover ripple on cards (subtle inner glow follow) ────────────────── */
+.card { background-clip: padding-box; }
+.card::before {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: 14px;
+    background: radial-gradient(
+        450px circle at var(--mx, 50%) var(--my, 50%),
+        rgba(52,211,153,.07),
+        transparent 35%
+    );
+    opacity: 0;
+    transition: opacity .25s;
+    pointer-events: none;
+}
+.card:hover::before { opacity: 1; }
+
+/* ──── Command-bar feel for sidebar action buttons ─────────────────────── */
+section[data-testid="stSidebar"] .stButton > button {
+    text-align: left !important;
+    padding-left: 14px !important;
+    font-size: .87rem !important;
+    letter-spacing: -.005em;
+}
+section[data-testid="stSidebar"] .stButton > button::before {
+    content: "›";
+    margin-right: 8px;
+    color: var(--mint);
+    font-weight: 700;
+    transition: transform .2s, margin-right .2s;
+    display: inline-block;
+}
+section[data-testid="stSidebar"] .stButton > button:hover::before {
+    transform: translateX(3px);
+    color: var(--mint-l);
+}
+
+/* ──── Live indicator ───────────────────────────────────────────────────── */
+.live-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--mint);
+    margin-right: 6px;
+    box-shadow: 0 0 0 0 var(--mint);
+    animation: liveBlink 1.6s infinite;
+}
+@keyframes liveBlink {
+    0%, 60% { box-shadow: 0 0 0 0 rgba(52,211,153,.6); }
+    100%    { box-shadow: 0 0 0 10px rgba(52,211,153,0); }
+}
+
+/* ──── Score badge sparkles for HOT leads ──────────────────────────────── */
+.badge-hot {
+    position: relative;
+    overflow: visible;
+}
+.badge-hot::before {
+    content: "✦";
+    position: absolute;
+    top: -6px; left: -8px;
+    color: rgba(251,113,133,.9);
+    font-size: .55rem;
+    animation: sparkle 2.2s ease-in-out infinite;
+}
+@keyframes sparkle {
+    0%, 100% { opacity: 0;   transform: scale(.5) rotate(0deg); }
+    50%      { opacity: .9;  transform: scale(1) rotate(180deg); }
+}
+
+/* ──── Focus halos with brand colour ───────────────────────────────────── */
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+button:focus-visible, [role="radio"]:focus-visible {
+    outline: 3px solid rgba(52,211,153,.35) !important;
+    outline-offset: 2px;
+    border-radius: 8px;
+    transition: outline .15s;
+}
+
+/* ──── Tab bar: subtle hover gradient ──────────────────────────────────── */
+.stTabs [data-baseweb="tab"]:hover {
+    background: linear-gradient(135deg, rgba(52,211,153,.08), rgba(56,189,248,.05)) !important;
+    color: var(--ice) !important;
+}
+
+/* ──── Hero — gradient sweep on load ──────────────────────────────────── */
+.hero {
+    background-size: 200% 200%;
+    animation: heroSweep 14s ease-in-out infinite alternate;
+}
+@keyframes heroSweep {
+    0%   { background-position: 0% 0%; }
+    100% { background-position: 100% 100%; }
+}
+
+/* ──── Smooth caret on text inputs ─────────────────────────────────────── */
+.stTextInput input, .stTextArea textarea {
+    caret-color: var(--mint) !important;
+}
+
+/* ──── Selection color ─────────────────────────────────────────────────── */
+::selection {
+    background: rgba(52,211,153,.3);
+    color: var(--ice);
+}
+
+/* ──── Number transitions on metrics ───────────────────────────────────── */
+[data-testid="stMetricValue"] > div {
+    transition: color .3s, transform .3s;
+}
+
+/* ──── Avatar/initials placeholder for contact_name (when used) ────────── */
+.avatar {
+    display: inline-flex;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: .75rem;
+    color: var(--ice);
+    background: linear-gradient(135deg, var(--violet) 0%, var(--mint) 100%);
+    box-shadow: 0 2px 8px -2px rgba(167,139,250,.4);
+    text-transform: uppercase;
+}
+
+/* ──── Data freshness indicator (use class="freshness") ────────────────── */
+.freshness {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: .68rem;
+    color: var(--mint);
+    font-weight: 600;
+    padding: 2px 8px;
+    background: rgba(52,211,153,.1);
+    border: 1px solid rgba(52,211,153,.25);
+    border-radius: 999px;
+}
+
+/* ──── Toast & notification top-right slide-in (already in UX layer) ──── */
+
+/* ──── Print styles for export-friendly views ─────────────────────────── */
+@media print {
+    .stApp { background: white !important; color: black !important; }
+    section[data-testid="stSidebar"] { display: none !important; }
+    .card, .intel-box, .alert-card {
+        background: white !important;
+        border-color: #e2e8f0 !important;
+        color: black !important;
+        animation: none !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: black !important;
+        -webkit-text-fill-color: black !important;
+    }
+}
+</style>"""
+
+st.markdown(_CSS_DELIGHT, unsafe_allow_html=True)
+
+
 # ─── Helper functions ──────────────────────────────────────────────────────────
 
 def label_emoji(label: str) -> str:

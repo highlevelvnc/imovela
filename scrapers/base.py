@@ -201,16 +201,23 @@ class PlaywrightPhoneRevealer:
         """
         Navigate to a listing page and extract the best available phone number.
 
-        Strategy (best source wins):
-          1. Load page + dismiss consent
-          2. PRE-CLICK scan: tel: hrefs, WhatsApp links, description text
-             If mobile/landline found → skip the reveal button (no relay risk)
-          3. If only relay or no phone yet: click the reveal button
-          4. POST-CLICK scan: repeat extraction, add fallback text regex
-          5. Return best candidate (mobile > landline > relay)
+        Strategy (best source wins, real numbers prioritised over relay):
+          1. Load page + dismiss consent banners
+          2. PRE-CLICK aggressive discovery via ``utils.phone_discovery``:
+             WhatsApp deep links, microdata, data-* attrs, hidden inputs,
+             JSON-LD, JSON key/value pairs in inline scripts, ``<meta>`` tags,
+             description text. Skips the reveal click entirely when a
+             non-relay number is already discoverable.
+          3. Otherwise click the reveal button
+          4. POST-CLICK discovery — same surfaces re-checked. Real numbers
+             often surface in newly-injected ``data-phone`` attrs.
+          5. Returns ``best_phone`` of all candidates (mobile > landline >
+             relay). Relay (6XX) is only returned when nothing better exists.
 
         Returns a canonical "+351XXXXXXXXX" or None.
         """
+        from utils.phone_discovery import discover_phones
+
         await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
         await asyncio.sleep(random.uniform(0.8, 1.5))
 
@@ -227,18 +234,28 @@ class PlaywrightPhoneRevealer:
         await page.keyboard.press("Escape")
         await asyncio.sleep(0.2)
 
-        # ── Phase A: pre-click scan ────────────────────────────────────────
-        # Collect every phone candidate visible in the static DOM / initial
-        # HTML before triggering the reveal button. Sellers sometimes leave
-        # their real phone in the description or a WhatsApp link, bypassing
-        # the OLX phone-masking proxy entirely.
-        candidates = await self._scan_page_phones(page)
-        best = best_phone(candidates)
+        # ── Phase A: aggressive pre-click discovery ───────────────────────
+        # Sweeps every static surface we know of — WhatsApp deep links,
+        # microdata, data-* attrs, hidden inputs, JSON-LD, inline ``<script>``
+        # stores, ``<meta>`` tags, description — BEFORE clicking the reveal
+        # button. If a real (non-relay) mobile/landline is anywhere in the
+        # page payload, we skip the click entirely and avoid the masking
+        # 6XX number altogether.
+        try:
+            html_pre = await page.content()
+        except Exception:
+            html_pre = ""
 
-        # If we already have a non-relay number, skip the button click entirely
-        # (clicking would only add relay numbers to the pool, never improve).
-        if best and best.phone_type in ("mobile", "landline"):
-            return best.canonical
+        non_relay_pre = discover_phones(html_pre, allow_relay=False)
+        if non_relay_pre:
+            best = best_phone(non_relay_pre)
+            if best and best.valid and best.phone_type in ("mobile", "landline"):
+                return best.canonical
+
+        # Keep the legacy DOM-walk results too — covers fast paths the
+        # full-page HTML scan might miss (cross-frame iframes, async
+        # content that already settled into the live DOM).
+        legacy_pre = await self._scan_page_phones(page)
 
         # ── Phase B: click the reveal button ───────────────────────────────
         phone_btn = None
@@ -272,12 +289,29 @@ class PlaywrightPhoneRevealer:
             except Exception as e:
                 log.debug("[PhoneRevealer] button click failed: {e}", e=e)
 
-        # ── Phase C: post-click scan ───────────────────────────────────────
-        post_candidates = await self._scan_page_phones(page, include_body_text=True)
-        # Merge with pre-click candidates; order preserves source preference
-        all_candidates = candidates + post_candidates
+        # ── Phase C: post-click discovery ─────────────────────────────────
+        try:
+            html_post = await page.content()
+        except Exception:
+            html_post = html_pre
+
+        # Full discovery sweep on the post-click HTML. Prefer non-relay
+        # candidates — when nothing better is found, fall back to the relay
+        # number so the lead at least carries some contact channel.
+        non_relay_post = discover_phones(html_post, allow_relay=False)
+        if non_relay_post:
+            best = best_phone(non_relay_post)
+            if best and best.valid:
+                return best.canonical
+
+        legacy_post = await self._scan_page_phones(page, include_body_text=True)
+        all_candidates = (
+            non_relay_pre + legacy_pre +
+            discover_phones(html_post, allow_relay=True) +
+            legacy_post
+        )
         best = best_phone(all_candidates)
-        return best.canonical if best else None
+        return best.canonical if best and best.valid else None
 
     async def _scan_page_phones(self, page, include_body_text: bool = False) -> list[str]:
         """

@@ -58,6 +58,7 @@ from utils.phone import (
     extract_whatsapp,
     validate_pt_phone,
 )
+from utils.phone_discovery import discover_phones, discover_whatsapp
 from utils.email_extractor import extract_first_email
 
 log = get_logger(__name__)
@@ -609,74 +610,61 @@ class OLXScraper(BaseScraper):
 
     def _extract_phone_static(self, soup: BeautifulSoup, page_html: str, item: dict) -> None:
         """
-        Collect phone candidates visible in the static HTML of the detail page.
+        Aggressive multi-source phone discovery — runs ``discover_phones``
+        which sweeps WhatsApp deep links, microdata, data-* attrs, hidden
+        inputs, JSON-LD, JSON key/value pairs, inline ``<script>`` stores,
+        ``<meta>`` tags, and finally the description text.
 
-        Sources, in preference order:
-          1. WhatsApp href links (wa.me, api.whatsapp.com) — always direct
-          2. tel: hrefs present without needing a click
-          3. Description text — sellers occasionally include a direct number
-             or a "WhatsApp 912…" phrase (OLX mostly strips these, but not always)
+        Real seller numbers leak in JS-injected ``data-phone`` attributes
+        and SSR seller payloads on OLX more often than on the visible HTML.
+        Catching them here means we skip the masking-relay (6XX) entirely
+        whenever a direct mobile is reachable.
 
-        Writes to `item`:
-          contact_phone         — canonical +351XXXXXXXXX
-          contact_source        — 'olx_html'
-          phone_type            — mobile | landline | relay
-          contact_confidence    — 40–90 per validate_pt_phone
-          contact_whatsapp      — canonical WA number when a wa.me link was found
+        Writes to ``item``:
+          contact_phone, contact_source, phone_type, contact_confidence,
+          contact_whatsapp
         """
-        candidates: list[str] = []
+        # Capture WhatsApp first (always direct, never relay)
+        for wa in discover_whatsapp(page_html, soup=soup):
+            if not item.get("contact_whatsapp"):
+                item["contact_whatsapp"] = wa
+                break
 
-        # 1. WhatsApp anchor links anywhere on the page
-        for a in soup.select("a[href*='wa.me'], a[href*='whatsapp.com']"):
-            wa = extract_whatsapp(a.get("href", ""))
-            if wa:
-                candidates.append(wa)
-                if not item.get("contact_whatsapp"):
-                    item["contact_whatsapp"] = wa
-
-        # 2. tel: hrefs in the static DOM (rare on OLX — mostly gated by JS,
-        #    but present on some external-portal cross-posts and legacy ads)
-        for a in soup.select("a[href^='tel:']"):
-            phone = extract_phone_from_tel_href(a.get("href", ""))
-            if phone:
-                candidates.append(phone)
-
-        # 3. Description text scan — real numbers sellers snuck past OLX filters
         desc = item.get("description") or ""
-        if desc:
-            wa = extract_whatsapp(desc)
-            if wa:
-                candidates.append(wa)
-                if not item.get("contact_whatsapp"):
-                    item["contact_whatsapp"] = wa
-            phone = extract_phone_from_text(desc)
-            if phone:
-                candidates.append(phone)
 
-        # 4. Raw HTML scan for inline WhatsApp mentions (catches numbers in
-        #    JSON blobs and data-attributes the description selector missed)
-        html_wa = extract_whatsapp(page_html)
-        if html_wa:
-            candidates.append(html_wa)
-
-        if not candidates:
-            return
-
-        best = best_phone(candidates)
-        if not best or not best.valid:
-            return
-
-        # Only set if nothing stored yet, or the new candidate is strictly better
-        current = item.get("contact_phone")
-        if current:
-            picked = best_phone([current, best.canonical])
-            if not picked or picked.canonical == current:
+        # Try real-only first — if anything but a 6XX is around, take it
+        non_relay = discover_phones(
+            page_html, soup=soup, description=desc, allow_relay=False,
+        )
+        if non_relay:
+            picked = best_phone(non_relay)
+            if picked and picked.valid:
+                self._maybe_set_phone(item, picked, source="olx_html")
                 return
 
-        item["contact_phone"]      = best.canonical
-        item["contact_source"]     = "olx_html"
-        item["phone_type"]         = best.phone_type
-        item["contact_confidence"] = best.confidence
+        # Otherwise fall back to relay if nothing else surfaces — still better
+        # than no contact, and the user can call to reach the seller.
+        all_cands = discover_phones(
+            page_html, soup=soup, description=desc, allow_relay=True,
+        )
+        if not all_cands:
+            return
+        picked = best_phone(all_cands)
+        if picked and picked.valid:
+            self._maybe_set_phone(item, picked, source="olx_html_relay")
+
+    @staticmethod
+    def _maybe_set_phone(item: dict, picked, source: str) -> None:
+        """Promote ``picked`` only when strictly better than what's stored."""
+        current = item.get("contact_phone")
+        if current:
+            best = best_phone([current, picked.canonical])
+            if not best or best.canonical == current:
+                return
+        item["contact_phone"]      = picked.canonical
+        item["contact_source"]     = source
+        item["phone_type"]         = picked.phone_type
+        item["contact_confidence"] = picked.confidence
 
     # ── JSON-LD parser ────────────────────────────────────────────────────────
 

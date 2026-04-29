@@ -215,9 +215,26 @@ def merge_contact_data(target, source) -> dict[str, int]:
         "phone": 0, "email": 0, "whatsapp": 0, "name": 0, "website": 0,
     }
 
-    if not target.contact_phone and source.contact_phone:
-        target.contact_phone = source.contact_phone
-        gained["phone"] = 1
+    # Phone propagation — copy when target has none, OR upgrade target's
+    # relay (6XX) number to a real mobile/landline from the source lead.
+    # The relay number "rings through" but isn't WhatsApp-able and isn't a
+    # direct seller identifier, so when we see the same property on another
+    # portal carrying a real number, we promote it.
+    from utils.phone import best_phone, validate_pt_phone
+    if source.contact_phone:
+        target_real = (
+            target.contact_phone
+            and validate_pt_phone(target.contact_phone).phone_type in ("mobile", "landline")
+        )
+        if not target.contact_phone:
+            target.contact_phone = source.contact_phone
+            gained["phone"] = 1
+        elif not target_real:
+            picked = best_phone([target.contact_phone, source.contact_phone])
+            if picked and picked.canonical == source.contact_phone \
+                    and picked.canonical != target.contact_phone:
+                target.contact_phone = source.contact_phone
+                gained["phone"] = 1
 
     if not target.contact_email and source.contact_email:
         target.contact_email = source.contact_email
