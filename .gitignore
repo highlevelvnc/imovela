@@ -1,0 +1,75 @@
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# ─── Virtual envs ────────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env.local
+.env.*.local
+
+# Secrets — keep local only. Use .env.example as the template in git.
+.env
+
+# ─── Editors / OS ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Database & generated data ───────────────────────────────────────────────
+# SQLite DBs (and their write-ahead/shared-memory siblings)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Trained ML models — large pickles, regenerable via `train-owner-classifier`
+data/*.pkl
+
+# Generated exports — regenerable, not source
+data/contactos_*.csv
+data/contactos_*.xlsx
+data/leads_*.csv
+data/leads_*.xlsx
+data/leads_*.json
+data/leads_export_*.csv
+data/leads_comercial_*.xlsx
+data/normalizado.xlsx
+exports/
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.zip
+
+# ─── Playwright artefacts ────────────────────────────────────────────────────
+playwright-report/
+test-results/
+.playwright-cache/
+
+# ─── Debug HTML dumps ────────────────────────────────────────────────────────
+/tmp/
+*_debug_*.html
+
+# ─── Local user dirs ─────────────────────────────────────────────────────────
+NEWPASTA/
+
+# ─── Misc ────────────────────────────────────────────────────────────────────
+*.bak
+*.orig
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

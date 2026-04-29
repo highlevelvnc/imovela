@@ -1,0 +1,44 @@
+# ─── Core ────────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+pydantic==2.7.1
+pydantic-settings==2.3.0
+loguru==0.7.2
+rich==13.7.1
+click==8.1.7
+
+# ─── HTTP & Scraping ─────────────────────────────────────────────────────────
+httpx[http2]==0.27.0
+brotli>=1.1.0              # brotli decompression for httpx (required for OLX PT)
+beautifulsoup4==4.12.3
+lxml==5.2.2
+playwright==1.44.0
+python-slugify==8.0.4
+
+# ─── Storage ─────────────────────────────────────────────────────────────────
+sqlalchemy==2.0.30
+alembic==1.13.1
+
+# ─── Scheduling ──────────────────────────────────────────────────────────────
+apscheduler==3.10.4
+schedule==1.2.2
+
+# ─── Dashboard ───────────────────────────────────────────────────────────────
+streamlit==1.35.0
+pandas==2.2.2
+plotly==5.22.0
+
+# ─── Notifications ───────────────────────────────────────────────────────────
+# email via smtplib (stdlib) — no extra dep needed
+# telegram:
+python-telegram-bot==21.3
+
+# ─── Utils ───────────────────────────────────────────────────────────────────
+python-dateutil==2.9.0
+geopy==2.4.1
+requests==2.32.3
+tenacity==8.3.0
+
+# ─── Dev & Testing ───────────────────────────────────────────────────────────
+pytest==8.2.2
+pytest-asyncio==0.23.7
+pytest-cov==5.0.0
