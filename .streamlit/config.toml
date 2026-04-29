@@ -1,0 +1,24 @@
+# ─── Imovela · Streamlit native theme ────────────────────────────────────────
+# Synced with the dashboard CSS palette. Streamlit applies these to every
+# rendered widget BEFORE custom CSS overrides — gives a consistent base so
+# we don't fight Streamlit's defaults inside `st.markdown()` injections.
+
+[theme]
+base                 = "dark"
+primaryColor         = "#34d399"          # mint — main accent
+backgroundColor      = "#050810"          # ink/00 — page
+secondaryBackgroundColor = "#0b1020"      # ink/10 — sidebar / surfaces
+textColor            = "#f8fafc"          # ice — body text
+font                 = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = true
+toolbarMode      = "minimal"
+
+[server]
+runOnSave        = true
+fileWatcherType  = "auto"
+headless         = false

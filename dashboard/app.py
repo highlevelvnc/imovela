@@ -882,6 +882,434 @@ st.markdown(_CSS_BASE, unsafe_allow_html=True)
 st.markdown(_CSS_CARDS, unsafe_allow_html=True)
 
 
+# ─── CSS: polish layer ───────────────────────────────────────────────────────
+# Loaded last so its rules take precedence over the base + cards layers.
+# Adds: animated mesh-grid background, refined sidebar nav, button shimmer,
+# data-frame polish, toast styling, section dividers, skeleton states,
+# refined radios/checkboxes, page-load fade, and Plotly-friendly chart frames.
+
+_CSS_POLISH = """<style>
+/* ──── Global page-load fade ───────────────────────────────────────────── */
+[data-testid="stAppViewBlockContainer"] > div {
+    animation: fadeIn .5s cubic-bezier(.4,0,.2,1) both;
+}
+
+/* ──── Background: animated mesh + subtle grid texture ─────────────────── */
+.stApp::before {
+    content: "";
+    position: fixed; inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        radial-gradient(circle at 20% 0%,  rgba(52,211,153,.08), transparent 35%),
+        radial-gradient(circle at 80% 100%, rgba(167,139,250,.10), transparent 40%),
+        radial-gradient(circle at 50% 50%, rgba(56,189,248,.04),  transparent 50%);
+    background-size: 100% 100%, 100% 100%, 100% 100%;
+    background-position: 0 0;
+    animation: meshDrift 22s ease-in-out infinite alternate;
+}
+.stApp::after {
+    content: "";
+    position: fixed; inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(255,255,255,.013) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.013) 1px, transparent 1px);
+    background-size: 48px 48px, 48px 48px;
+    mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%);
+}
+.main, section[data-testid="stSidebar"] { position: relative; z-index: 1; }
+
+@keyframes meshDrift {
+    0%   { background-position: 0% 0%, 100% 100%, 50% 50%; }
+    100% { background-position: 6% 4%, 94% 96%, 54% 46%; }
+}
+
+/* ──── Sidebar navigation: pill-style radio with gradient indicator ────── */
+section[data-testid="stSidebar"] [role="radiogroup"] {
+    gap: 4px !important;
+    flex-direction: column !important;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 11px !important;
+    padding: 9px 12px !important;
+    transition: all .2s cubic-bezier(.4,0,.2,1) !important;
+    cursor: pointer !important;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    position: relative !important;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label > div:first-child {
+    display: none !important;        /* hide native bullet */
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label:hover {
+    background: rgba(52,211,153,.06) !important;
+    border-color: rgba(52,211,153,.18) !important;
+    transform: translateX(2px);
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label[data-baseweb*="checked"],
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+    background:
+        linear-gradient(90deg, rgba(52,211,153,.16) 0%, rgba(56,189,248,.06) 100%) !important;
+    border-color: rgba(52,211,153,.4) !important;
+    box-shadow:
+        inset 3px 0 0 var(--mint),
+        0 4px 14px -6px rgba(52,211,153,.4) !important;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label p {
+    font-weight: 600 !important;
+    color: var(--fog) !important;
+    margin: 0 !important;
+    font-size: .87rem !important;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p {
+    color: var(--mint) !important;
+}
+
+/* ──── Buttons: shimmer sweep on hover ─────────────────────────────────── */
+.stButton > button {
+    position: relative;
+    overflow: hidden;
+}
+.stButton > button::after {
+    content: "";
+    position: absolute; top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,.08) 50%,
+        transparent 100%);
+    transition: left .6s cubic-bezier(.4,0,.2,1);
+    pointer-events: none;
+}
+.stButton > button:hover::after {
+    left: 100%;
+}
+
+/* ──── Selectbox dropdown panel — match dark theme ─────────────────────── */
+[data-baseweb="popover"] > div {
+    background: rgba(11,16,32,.95) !important;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,.08) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 16px 48px -12px rgba(0,0,0,.6) !important;
+}
+[data-baseweb="menu"] li {
+    color: var(--fog) !important;
+    transition: background .15s, padding-left .15s;
+}
+[data-baseweb="menu"] li:hover {
+    background: rgba(52,211,153,.1) !important;
+    color: var(--mint) !important;
+    padding-left: 18px !important;
+}
+
+/* ──── Slider: refined track + handle ──────────────────────────────────── */
+.stSlider [role="slider"] {
+    background: var(--grad-primary) !important;
+    border: 2px solid var(--ink-10) !important;
+    box-shadow: 0 0 0 4px rgba(52,211,153,.1),
+                0 4px 14px -4px rgba(52,211,153,.5) !important;
+    transition: transform .15s !important;
+}
+.stSlider [role="slider"]:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 6px rgba(52,211,153,.15),
+                0 6px 20px -4px rgba(52,211,153,.7) !important;
+}
+.stSlider > div > div > div > div {
+    background: var(--grad-primary) !important;
+}
+
+/* ──── Checkbox: refined glass tick ────────────────────────────────────── */
+.stCheckbox label > div:first-child {
+    border-radius: 6px !important;
+    border: 1.5px solid rgba(255,255,255,.15) !important;
+    background: rgba(11,16,32,.5) !important;
+    transition: all .2s !important;
+}
+.stCheckbox label:hover > div:first-child {
+    border-color: var(--mint) !important;
+    box-shadow: 0 0 0 4px rgba(52,211,153,.08);
+}
+.stCheckbox label > div:first-child[aria-checked="true"] {
+    background: var(--grad-primary) !important;
+    border-color: transparent !important;
+    box-shadow: 0 4px 14px -4px rgba(52,211,153,.5);
+}
+
+/* ──── Toasts and status messages ──────────────────────────────────────── */
+.stAlert, [data-testid="stNotification"] {
+    background: rgba(11,16,32,.85) !important;
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    border: 1px solid rgba(255,255,255,.08) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 12px 40px -12px rgba(0,0,0,.5) !important;
+    padding: 12px 16px !important;
+    animation: slideInRight .4s cubic-bezier(.4,0,.2,1) both;
+}
+.stAlert[data-baseweb="notification"][kind="success"] {
+    border-left: 3px solid var(--mint) !important;
+    background:
+        linear-gradient(90deg, rgba(52,211,153,.1) 0%, rgba(11,16,32,.85) 50%) !important;
+}
+.stAlert[data-baseweb="notification"][kind="error"] {
+    border-left: 3px solid var(--rose) !important;
+    background:
+        linear-gradient(90deg, rgba(251,113,133,.1) 0%, rgba(11,16,32,.85) 50%) !important;
+}
+.stAlert[data-baseweb="notification"][kind="warning"] {
+    border-left: 3px solid var(--amber) !important;
+    background:
+        linear-gradient(90deg, rgba(251,191,36,.1) 0%, rgba(11,16,32,.85) 50%) !important;
+}
+.stAlert[data-baseweb="notification"][kind="info"] {
+    border-left: 3px solid var(--sky) !important;
+    background:
+        linear-gradient(90deg, rgba(56,189,248,.1) 0%, rgba(11,16,32,.85) 50%) !important;
+}
+
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ──── Section divider with gradient + label ──────────────────────────── */
+hr {
+    background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,.1) 30%,
+        rgba(52,211,153,.25) 50%,
+        rgba(255,255,255,.1) 70%,
+        transparent 100%) !important;
+    height: 1px !important;
+    border: none !important;
+    margin: 1.8rem 0 !important;
+}
+
+/* ──── Section labels: small mark before text ─────────────────────────── */
+.lbl-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px !important;
+}
+.lbl-section::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--grad-primary);
+    box-shadow: 0 0 8px -1px rgba(52,211,153,.6);
+    flex-shrink: 0;
+}
+
+/* ──── Data frames — striped, sticky header, hover row ─────────────────── */
+.stDataFrame [data-testid="stDataFrameResizable"] {
+    border: 1px solid rgba(255,255,255,.06) !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    background: rgba(11,16,32,.4) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+.stDataFrame [data-testid="stTable"] thead tr th {
+    background: rgba(29,39,71,.65) !important;
+    border-bottom: 1px solid rgba(255,255,255,.08) !important;
+    color: var(--smoke) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: .72rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: .08em !important;
+    padding: 10px 14px !important;
+}
+.stDataFrame [data-testid="stTable"] tbody tr {
+    transition: background .15s !important;
+}
+.stDataFrame [data-testid="stTable"] tbody tr:nth-child(odd) {
+    background: rgba(255,255,255,.012) !important;
+}
+.stDataFrame [data-testid="stTable"] tbody tr:hover {
+    background: rgba(52,211,153,.05) !important;
+}
+.stDataFrame [data-testid="stTable"] tbody td {
+    border-bottom: 1px solid rgba(255,255,255,.03) !important;
+    color: var(--fog) !important;
+    font-size: .82rem !important;
+    padding: 9px 14px !important;
+}
+
+/* ──── Progress bar ────────────────────────────────────────────────────── */
+.stProgress > div > div > div {
+    background: var(--grad-primary) !important;
+    background-size: 200% 100% !important;
+    animation: shimmer 2.5s linear infinite !important;
+    border-radius: 999px !important;
+    box-shadow: 0 0 12px -2px rgba(52,211,153,.5);
+}
+.stProgress > div > div {
+    background: rgba(11,16,32,.6) !important;
+    border-radius: 999px !important;
+}
+
+/* ──── Skeleton loader (use with class="skeleton") ─────────────────────── */
+.skeleton {
+    background:
+        linear-gradient(90deg,
+            rgba(29,39,71,.4) 0%,
+            rgba(52,211,153,.08) 50%,
+            rgba(29,39,71,.4) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+    border-radius: 8px;
+}
+
+/* ──── Spinner refresh — match palette ─────────────────────────────────── */
+.stSpinner > div {
+    border-top-color: var(--mint) !important;
+    border-right-color: var(--sky) !important;
+    border-bottom-color: var(--violet) !important;
+    border-left-color: transparent !important;
+    filter: drop-shadow(0 0 8px rgba(52,211,153,.4));
+}
+
+/* ──── Caption / muted text ────────────────────────────────────────────── */
+.stCaption, [data-testid="stCaptionContainer"] {
+    color: var(--dust) !important;
+    font-size: .78rem !important;
+    font-style: normal !important;
+    letter-spacing: .01em;
+}
+
+/* ──── Tooltips (Streamlit help indicator) ─────────────────────────────── */
+[data-baseweb="tooltip"] {
+    background: rgba(5,8,16,.95) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,.08) !important;
+    border-radius: 8px !important;
+    color: var(--fog) !important;
+    font-size: .78rem !important;
+    box-shadow: 0 8px 28px -8px rgba(0,0,0,.7) !important;
+}
+
+/* ──── Charts: subtle frame around plotly canvas ───────────────────────── */
+[data-testid="stPlotlyChart"] {
+    background: rgba(11,16,32,.4) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.05);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: var(--shadow-card);
+    transition: border-color .25s, box-shadow .25s;
+}
+[data-testid="stPlotlyChart"]:hover {
+    border-color: rgba(52,211,153,.18);
+}
+
+/* ──── Number input refined ────────────────────────────────────────────── */
+.stNumberInput button {
+    background: rgba(29,39,71,.5) !important;
+    border: 1px solid rgba(255,255,255,.06) !important;
+    color: var(--smoke) !important;
+}
+.stNumberInput button:hover {
+    color: var(--mint) !important;
+    border-color: rgba(52,211,153,.3) !important;
+}
+
+/* ──── Refined badge animations ────────────────────────────────────────── */
+.badge-drop {
+    position: relative;
+}
+.badge-drop::after {
+    content: "↓";
+    position: absolute;
+    right: -2px; top: 50%;
+    transform: translateY(-50%) translateX(120%);
+    opacity: 0;
+    color: currentColor;
+    font-weight: 900;
+    transition: all .25s;
+}
+.badge-drop:hover::after {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0%);
+}
+
+/* ──── Cursor accent — subtle gradient on focusable elements ───────────── */
+.stApp button:focus-visible,
+.stApp input:focus-visible,
+.stApp [role="radio"]:focus-visible {
+    outline: 2px solid rgba(52,211,153,.5) !important;
+    outline-offset: 2px !important;
+}
+
+/* ──── Score orb hover: pulse ring ─────────────────────────────────────── */
+.score-orb {
+    cursor: default;
+}
+.score-orb.orb-hot:hover {
+    animation: orbPulseHot 1.2s cubic-bezier(.4,0,.2,1) infinite;
+}
+@keyframes orbPulseHot {
+    0%, 100% {
+        box-shadow: 0 4px 20px -4px rgba(251,113,133,.45),
+                    0 0 0 0   rgba(251,113,133,.5);
+    }
+    50% {
+        box-shadow: 0 4px 24px -4px rgba(251,113,133,.7),
+                    0 0 0 8px rgba(251,113,133,0);
+    }
+}
+
+/* ──── Tabs: gradient active underline ─────────────────────────────────── */
+.stTabs [aria-selected="true"] {
+    position: relative;
+}
+.stTabs [aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    bottom: 0; left: 12%; right: 12%; height: 2px;
+    background: var(--grad-primary);
+    border-radius: 2px;
+    box-shadow: 0 0 8px -1px rgba(52,211,153,.6);
+}
+
+/* ──── Subtle breathing on logo ────────────────────────────────────────── */
+.imovela-logo {
+    animation: float 5.5s ease-in-out infinite;
+}
+
+/* ──── Image + Text alignment fixes ────────────────────────────────────── */
+[data-testid="stMarkdownContainer"] a {
+    color: var(--mint) !important;
+    text-decoration: none !important;
+    border-bottom: 1px dotted rgba(52,211,153,.4);
+    transition: border-color .15s, color .15s;
+}
+[data-testid="stMarkdownContainer"] a:hover {
+    color: var(--mint-l) !important;
+    border-bottom-color: var(--mint-l);
+}
+
+/* ──── Improve density / breathing of key sections ─────────────────────── */
+[data-testid="column"]:not(:last-child) { padding-right: .25rem; }
+[data-testid="column"]:not(:first-child) { padding-left: .25rem; }
+</style>"""
+
+st.markdown(_CSS_POLISH, unsafe_allow_html=True)
+
+
 # ─── Helper functions ──────────────────────────────────────────────────────────
 
 def label_emoji(label: str) -> str:
@@ -1631,22 +2059,46 @@ if page == "&#128202;  Dashboard":
     st.divider()
 
     if not df.empty:
-        BG = "#0d1220"; GRD = "#1a2640"; TXT = "#4d6280"
+        # Imovela chart palette — synced with the CSS tokens above
+        BG  = "rgba(11,16,32,0)"          # transparent — let the CSS frame show through
+        GRD = "rgba(255,255,255,.05)"
+        TXT = "#94a3b8"                   # smoke
         FNT = dict(family="Inter", color=TXT, size=11)
+        # Brand-coordinated mint→sky→violet palette for histogram + bars
+        BRAND_MINT   = "#34d399"
+        BRAND_SKY    = "#38bdf8"
+        BRAND_VIOLET = "#a78bfa"
+        BRAND_ROSE   = "#fb7185"
+        BRAND_AMBER  = "#fbbf24"
 
         ch1, ch2 = st.columns(2, gap="large")
         with ch1:
             st.markdown('<div class="lbl-section">Distribuicao de Pontuacoes</div>', unsafe_allow_html=True)
             fig = go.Figure()
-            fig.add_trace(go.Histogram(x=df["score"], nbinsx=20, marker=dict(color="#1e3a6e", opacity=.9)))
-            fig.add_vline(x=75, line_dash="dot", line_color="#f43f5e", line_width=1.5,
-                          annotation_text="HOT", annotation_font_color="#f43f5e", annotation_font_size=10)
-            fig.add_vline(x=50, line_dash="dot", line_color="#f59e0b", line_width=1.5,
-                          annotation_text="WARM", annotation_font_color="#f59e0b", annotation_font_size=10)
-            fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, margin=dict(l=0, r=8, t=8, b=0),
-                               height=200, font=FNT, showlegend=False,
-                               xaxis=dict(gridcolor=GRD, linecolor=GRD),
-                               yaxis=dict(gridcolor=GRD, linecolor=GRD))
+            fig.add_trace(go.Histogram(
+                x=df["score"], nbinsx=20,
+                marker=dict(
+                    color=BRAND_SKY,
+                    opacity=.85,
+                    line=dict(width=1, color="rgba(56,189,248,.4)"),
+                ),
+                hovertemplate="<b>Score</b> %{x}<br>%{y} leads<extra></extra>",
+            ))
+            fig.add_vline(x=75, line_dash="dot", line_color=BRAND_ROSE, line_width=1.6,
+                          annotation_text="HOT", annotation_font_color=BRAND_ROSE, annotation_font_size=10)
+            fig.add_vline(x=50, line_dash="dot", line_color=BRAND_AMBER, line_width=1.6,
+                          annotation_text="WARM", annotation_font_color=BRAND_AMBER, annotation_font_size=10)
+            fig.update_layout(
+                paper_bgcolor=BG, plot_bgcolor=BG,
+                margin=dict(l=0, r=8, t=8, b=0),
+                height=210, font=FNT, showlegend=False,
+                hoverlabel=dict(bgcolor="#0b1020", bordercolor="rgba(255,255,255,.12)",
+                                font=dict(family="Inter", color="#f8fafc", size=11)),
+                xaxis=dict(gridcolor=GRD, linecolor=GRD, zerolinecolor=GRD,
+                           tickfont=dict(color=TXT)),
+                yaxis=dict(gridcolor=GRD, linecolor=GRD, zerolinecolor=GRD,
+                           tickfont=dict(color=TXT)),
+            )
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         with ch2:
@@ -1655,17 +2107,34 @@ if page == "&#128202;  Dashboard":
             if zd:
                 sz  = sorted(zd.items(), key=lambda x: x[1])
                 mx  = max(v for _, v in sz) if sz else 1
-                clrs = ["#3b82f6" if v == mx else "#1a3258" for _, v in sz]
+                # Top zone gets mint accent, others fade through sky → violet → muted
+                def _zone_color(idx: int, total: int) -> str:
+                    if idx == total - 1:
+                        return BRAND_MINT
+                    if idx >= total - 3:
+                        return BRAND_SKY
+                    if idx >= total - 6:
+                        return BRAND_VIOLET
+                    return "rgba(167,139,250,.35)"
+                clrs = [_zone_color(i, len(sz)) for i in range(len(sz))]
                 fig2 = go.Figure(go.Bar(
                     x=[v for _, v in sz], y=[k for k, _ in sz], orientation="h",
                     marker=dict(color=clrs, line=dict(width=0)),
                     text=[str(v) for _, v in sz], textposition="outside",
-                    textfont=dict(color=TXT, size=11),
+                    textfont=dict(color="#f8fafc", size=11, family="Space Grotesk"),
+                    hovertemplate="<b>%{y}</b><br>%{x} leads<extra></extra>",
                 ))
-                fig2.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, margin=dict(l=0, r=40, t=8, b=0),
-                                    height=200, font=FNT, showlegend=False,
-                                    xaxis=dict(gridcolor=GRD, showticklabels=False),
-                                    yaxis=dict(gridcolor="rgba(0,0,0,0)", tickfont=dict(color="#6a8aaa", size=11)))
+                fig2.update_layout(
+                    paper_bgcolor=BG, plot_bgcolor=BG,
+                    margin=dict(l=0, r=40, t=8, b=0),
+                    height=210, font=FNT, showlegend=False,
+                    bargap=0.35,
+                    hoverlabel=dict(bgcolor="#0b1020", bordercolor="rgba(255,255,255,.12)",
+                                    font=dict(family="Inter", color="#f8fafc", size=11)),
+                    xaxis=dict(gridcolor=GRD, showticklabels=False, zerolinecolor=GRD),
+                    yaxis=dict(gridcolor="rgba(0,0,0,0)",
+                               tickfont=dict(color="#cbd5e1", size=11, family="Inter")),
+                )
                 st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
         # Alertas + Funil
