@@ -97,6 +97,24 @@ class Scheduler:
             replace_existing=True,
         )
 
+        # Stale-lead auto-archive — daily at 03:00, before everything else.
+        self._scheduler.add_job(
+            func=self._job_stale_archive,
+            trigger=CronTrigger(hour=3, minute=0),
+            id="stale_archive",
+            name="Auto-archive leads stale >60d",
+            replace_existing=True,
+        )
+
+        # Dropped-listing sweep — every 6 hours, paged 200 URLs/run.
+        self._scheduler.add_job(
+            func=self._job_dropped_sweep,
+            trigger=IntervalTrigger(hours=6),
+            id="dropped_sweep",
+            name="Detect dropped listings (404/410)",
+            replace_existing=True,
+        )
+
         self._scheduler.start()
         self._running = True
         log.info(
@@ -127,6 +145,8 @@ class Scheduler:
             "premarket": self._job_premarket_scan,
             "nurture":   self._job_nurture_tick,
             "backup":    self._job_daily_backup,
+            "stale":     self._job_stale_archive,
+            "dropped":   self._job_dropped_sweep,
         }
         fn = steps.get(step)
         if fn:
@@ -236,6 +256,32 @@ class Scheduler:
             )
         except Exception as e:
             log.error("Nurture tick failed: {e}", e=e)
+
+    def _job_stale_archive(self) -> None:
+        """Daily: archive leads with no activity in the last 60 days."""
+        log.info("--- JOB: Stale archive ---")
+        try:
+            from pipeline.maintenance import auto_archive_stale
+            stats = auto_archive_stale(stale_days=60)
+            log.info(
+                "Stale archive: archived={a} considered={c}",
+                a=stats["archived"], c=stats["considered"],
+            )
+        except Exception as e:
+            log.error("Stale archive failed: {e}", e=e)
+
+    def _job_dropped_sweep(self) -> None:
+        """Every 6h: HEAD-check 200 lead URLs and mark 404/410 as dropped."""
+        log.info("--- JOB: Dropped-listing sweep ---")
+        try:
+            from pipeline.maintenance import mark_dropped_listings
+            stats = mark_dropped_listings(limit=200)
+            log.info(
+                "Dropped sweep: dropped={d} alive={a} checked={c}",
+                d=stats["dropped"], a=stats["alive"], c=stats["checked"],
+            )
+        except Exception as e:
+            log.error("Dropped sweep failed: {e}", e=e)
 
     def _job_daily_backup(self) -> None:
         """

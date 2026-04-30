@@ -134,6 +134,12 @@ class Lead(Base):
     # Populated at upsert time by the normalizer + during initial backfill.
     amenity_tags:          Mapped[Optional[str]] = mapped_column(String(400))
 
+    # ── Listing status ──────────────────────────────────────────────────────
+    # alive | dropped | unknown — populated by the maintenance sweeper that
+    # HEAD-checks each lead's primary URL. "dropped" = source URL returns
+    # 404/410 → likely sold or retracted.
+    listing_status:        Mapped[Optional[str]] = mapped_column(String(20))
+
     # ── Sources (JSON list) ───────────────────────────────────────────────────
     # Format: [{"source": "olx", "url": "...", "seen_at": "ISO datetime"}]
     # PostgreSQL migration: replace with JSONB column

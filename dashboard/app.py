@@ -1709,6 +1709,67 @@ def empty_state(icon: str = "◆", title: str = "Sem dados",
     )
 
 
+def render_photo_gallery(lead) -> None:
+    """
+    Show the listing's primary image inline. Falls back gracefully when
+    the lead has no image_url or the URL is unreachable. Streamlit caches
+    the byte payload via @st.cache_data with a 1h TTL so repeated views
+    of the same lead don't re-download.
+    """
+    if not getattr(lead, "image_url", None):
+        return
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _fetch_image_bytes(url: str) -> bytes | None:
+        try:
+            import httpx
+            with httpx.Client(timeout=10.0, follow_redirects=True,
+                              headers={"User-Agent": "Mozilla/5.0", "Accept": "image/*"}) as c:
+                r = c.get(url)
+                if r.status_code == 200 and r.content:
+                    return r.content
+        except Exception:
+            return None
+        return None
+
+    img = _fetch_image_bytes(lead.image_url)
+    if img:
+        st.image(img, use_container_width=True)
+
+
+def render_similar_leads(lead_id: int, top_n: int = 5) -> None:
+    """
+    Show 'similar to this' inline list. Best-effort — silently no-ops
+    when the similarity index can't be built (eg. sklearn missing).
+    """
+    try:
+        from utils.similarity import similar_to
+    except Exception:
+        return
+    try:
+        rows = similar_to(lead_id, top_n=top_n)
+    except Exception as e:
+        st.caption(f"⚠ similar lookup falhou: {e}")
+        return
+    if not rows:
+        st.caption("Sem comparáveis suficientes.")
+        return
+    st.markdown('<div class="lbl-section">Comparáveis</div>', unsafe_allow_html=True)
+    for r in rows:
+        st.markdown(
+            f'<div style="display:flex;gap:10px;padding:6px 8px;'
+            f'background:rgba(29,39,71,.3);border-radius:8px;margin-bottom:5px;'
+            f'font-size:.78rem;">'
+            f'  <span style="color:var(--smoke);font-family:Space Grotesk;'
+            f'                font-weight:700;">#{r.id}</span>'
+            f'  <span style="color:var(--fog);">{r.typology or "?"} {r.zone or "?"}</span>'
+            f'  <span style="margin-left:auto;color:var(--mint);font-weight:700;">'
+            f'    {fmt_price(r.price)}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def quick_actions_bar(phone: str | None, email: str | None,
                       url: str | None = None, whatsapp: str | None = None) -> None:
     """One-tap outreach buttons: call, WhatsApp, e-mail, portal listing."""
@@ -2141,6 +2202,7 @@ with st.sidebar:
         "&#128293;  HOT Focus",
         "&#127919;  Oportunidades",
         "&#128203;  CRM",
+        "&#128240;  Atividade",
         "&#128205;  Mapa & BI",
         "&#128268;  Pre-Market",
         "&#129518;  Sistema",
@@ -2166,12 +2228,56 @@ with st.sidebar:
         placeholder="Ex: T2 Lisboa piscina · 'Avenidas Novas'",
         label_visibility="collapsed",
         key="fts_query_input",
+        value=st.session_state.get("__fts_query_preset", ""),
         help=(
             "Pesquisa rápida (FTS5). Operadores: AND OR NOT NEAR · "
             'Aspas para frase: "Avenidas Novas" · '
             "Acaba com * para prefix: apartament*"
         ),
     )
+
+    # Saved searches dropdown — load + delete
+    try:
+        from storage.saved_searches import (
+            list_searches as _ss_list, save_search as _ss_save,
+            delete_search as _ss_del, touch as _ss_touch,
+        )
+        searches = _ss_list()
+    except Exception:
+        searches = []
+
+    if searches:
+        names = ["—"] + [f"{s['name']}" for s in searches]
+        chosen = st.selectbox(
+            "Bookmarks", names,
+            label_visibility="collapsed",
+            help="Carregar pesquisa guardada",
+            key="saved_search_pick",
+        )
+        if chosen and chosen != "—":
+            picked = next((s for s in searches if s["name"] == chosen), None)
+            if picked and st.session_state.get("__last_loaded_search") != picked["id"]:
+                st.session_state["__fts_query_preset"] = picked["query"]
+                st.session_state["__last_loaded_search"] = picked["id"]
+                try: _ss_touch(picked["id"])
+                except Exception: pass
+                st.rerun()
+
+    sscol1, sscol2 = st.columns([3, 1])
+    with sscol1:
+        new_name = st.text_input(
+            "Guardar como…", placeholder="Nome da pesquisa",
+            label_visibility="collapsed", key="ss_new_name",
+        )
+    with sscol2:
+        if st.button("💾", help="Guardar atual", use_container_width=True, key="ss_save_btn"):
+            if new_name and fts_query:
+                try:
+                    _ss_save(new_name, fts_query, {})
+                    st.toast(f"✓ '{new_name}' guardada", icon="💾")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Falhou: {e}")
 
     st.divider()
     st.markdown('<div class="lbl-section">Filtros</div>', unsafe_allow_html=True)
@@ -3391,6 +3497,120 @@ elif page == "&#129518;  Sistema":
                 )
     except Exception:
         pass
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: ATIVIDADE — chronological feed of every interesting event
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "&#128240;  Atividade":
+
+    from sqlalchemy import desc as _d
+    from datetime import datetime as _dt, timedelta as _td
+
+    st.markdown(
+        '<div class="hero">'
+        '  <div class="hero-title">'
+        '    <span class="hero-title-accent">Atividade</span> · O que aconteceu hoje'
+        '  </div>'
+        '  <div class="hero-sub">'
+        '    Cronologia das últimas alterações — novos leads, quedas de preço, '
+        '    re-marketing, anúncios sumidos, follow-ups gerados.'
+        '  </div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    feed_window = st.select_slider(
+        "Janela",
+        options=["24h", "3 dias", "7 dias", "30 dias"],
+        value="7 dias",
+    )
+    hours_map = {"24h": 24, "3 dias": 72, "7 dias": 168, "30 dias": 720}
+    cutoff = _dt.utcnow() - _td(hours=hours_map[feed_window])
+
+    from storage.database import get_db as _gdb
+    from storage.models import Lead as _L, CRMNote as _N
+    with _gdb() as db:
+        recent_leads = (
+            db.query(_L)
+            .filter(_L.first_seen_at >= cutoff)
+            .filter(_L.is_demo == False)        # noqa: E712
+            .order_by(_d(_L.first_seen_at))
+            .limit(200).all()
+        )
+        recent_notes = (
+            db.query(_N, _L)
+            .join(_L, _L.id == _N.lead_id)
+            .filter(_N.created_at >= cutoff)
+            .order_by(_d(_N.created_at))
+            .limit(300).all()
+        )
+
+    # Build a unified timeline: lead-arrived events + note events
+    events: list[dict] = []
+    for l in recent_leads:
+        events.append({
+            "ts":    l.first_seen_at,
+            "kind":  "new_lead",
+            "icon":  "🆕",
+            "color": "var(--mint)",
+            "title": f"Novo lead · {l.typology or '?'} {l.zone or ''}",
+            "body":  (l.title or "")[:130],
+            "lead":  l,
+        })
+    NOTE_ICONS = {
+        "change_detected": ("✏️",  "var(--violet)"),
+        "listing_dropped": ("❌",  "var(--rose)"),
+        "nurture":         ("⏰",  "var(--amber)"),
+        "call":            ("📞", "var(--mint)"),
+        "email":           ("✉",  "var(--sky)"),
+        "whatsapp":        ("💬", "var(--mint)"),
+        "visit":           ("📍", "var(--violet)"),
+        "internal":        ("📝", "var(--smoke)"),
+    }
+    for n, l in recent_notes:
+        ic, col = NOTE_ICONS.get(n.note_type, ("•", "var(--smoke)"))
+        # Strip the JSON tail of change_detected notes for the feed
+        body = n.note or ""
+        if "[changeset]" in body:
+            body = body.split("[changeset]")[0].strip()
+        events.append({
+            "ts":    n.created_at,
+            "kind":  n.note_type,
+            "icon":  ic,
+            "color": col,
+            "title": f"{n.note_type.replace('_', ' ').title()} · #{l.id}",
+            "body":  body[:200],
+            "lead":  l,
+        })
+
+    events.sort(key=lambda e: e["ts"], reverse=True)
+
+    if not events:
+        empty_state(
+            icon="📭",
+            title="Sem atividade ainda",
+            hint="Lança o pipeline ou aumenta a janela acima.",
+        )
+    else:
+        st.caption(f"{len(events)} eventos nos últimos {feed_window}")
+        for ev in events[:200]:
+            ts_str = ev["ts"].strftime("%d %b %H:%M") if ev["ts"] else "—"
+            st.markdown(
+                f'<div class="card" style="padding:12px 16px;margin-bottom:8px;'
+                f'border-left:3px solid {ev["color"]};">'
+                f'  <div style="display:flex;align-items:center;gap:10px;'
+                f'              margin-bottom:4px;">'
+                f'    <span style="font-size:1.05rem;">{ev["icon"]}</span>'
+                f'    <span style="font-weight:700;color:var(--ice);'
+                f'                  font-size:.88rem;">{ev["title"]}</span>'
+                f'    <span style="margin-left:auto;color:var(--smoke);'
+                f'                  font-size:.72rem;font-family:Space Grotesk;">{ts_str}</span>'
+                f'  </div>'
+                f'  <div style="color:var(--fog);font-size:.82rem;'
+                f'              line-height:1.4;">{ev["body"]}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: MAPA & BI — heatmap + funnel + agency leaderboard

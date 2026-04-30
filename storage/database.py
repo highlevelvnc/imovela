@@ -70,6 +70,8 @@ def init_db() -> None:
     _migrate_seller_profile_fields()
     _migrate_image_phash()
     _migrate_amenity_tags()
+    _migrate_listing_status()
+    _migrate_saved_searches()
     _migrate_fts_index()
     log.info("Database initialised — {url}", url=settings.database_url)
 
@@ -402,6 +404,39 @@ def _migrate_amenity_tags() -> None:
             conn.commit()
     except Exception:
         pass
+
+
+def _migrate_listing_status() -> None:
+    """Idempotent migration: add ``listing_status`` for dropped-listing tracking."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE leads ADD COLUMN listing_status VARCHAR(20)"
+            ))
+            conn.commit()
+    except Exception:
+        pass
+
+
+def _migrate_saved_searches() -> None:
+    """Idempotent migration: create the ``saved_searches`` table."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS saved_searches (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name        VARCHAR(80)  NOT NULL,
+                    query       TEXT         NOT NULL,
+                    filters     TEXT         NOT NULL DEFAULT '{}',
+                    created_at  DATETIME     NOT NULL,
+                    last_used   DATETIME
+                )
+            """))
+            conn.commit()
+    except Exception as e:
+        log.debug("[migrate] saved_searches: {e}", e=e)
 
 
 def _migrate_fts_index() -> None:

@@ -1,0 +1,66 @@
+# ─── Imovela — CI ────────────────────────────────────────────────────────────
+# Runs the test suite + a syntax-only sanity sweep on every push and PR.
+# Browser-dependent scrapers (Playwright) are NOT exercised here — the
+# test suite covers pure-Python utilities + pipeline logic only, which
+# is what protects against regressions during refactors.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install minimal deps for tests
+        run: |
+          python -m pip install --upgrade pip
+          # Slim install — only the libs the unit tests touch.
+          # Full requirements.txt pulls Playwright + browser bin (~150MB)
+          # which we don't need for pure-Python tests.
+          pip install \
+            pytest pytest-cov \
+            sqlalchemy "pydantic>=2,<3" pydantic-settings \
+            httpx beautifulsoup4 lxml \
+            python-slugify python-dateutil \
+            scikit-learn imagehash Pillow loguru rich \
+            tenacity
+
+      - name: Compile-check every Python file
+        run: |
+          python -m compileall -q \
+            scrapers pipeline utils storage config \
+            alerts crm reports scoring scheduler premarket \
+            main.py
+
+      - name: Run pytest (unit tests only)
+        run: |
+          pytest tests/test_phone.py tests/test_amenity_change.py \
+                 tests/test_pipeline.py tests/test_scoring.py \
+                 -v --tb=short --no-header
+        continue-on-error: false
+
+      - name: Show coverage hint
+        if: always()
+        run: |
+          echo "::notice::Run 'pytest --cov' locally for line coverage details"

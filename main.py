@@ -587,6 +587,69 @@ def backup(label: str, keep: int):
         )
 
 
+@cli.command(name="archive-stale")
+@click.option("--days", default=60, type=int, show_default=True,
+              help="Archive leads with no update in N days")
+def archive_stale(days: int):
+    """Archive leads with no activity in the last N days.
+
+    Skips leads in active CRM stages (contactado / negociacao), with
+    priority_flag=True, or with a CRMNote inside the window.
+    """
+    from pipeline.maintenance import auto_archive_stale
+    console.print(f"[cyan]Archiving leads stale for >{days}d...[/cyan]")
+    stats = auto_archive_stale(stale_days=days)
+    console.print(
+        f"[green]✓ Archive sweep complete[/green]\n"
+        f"  Considered:   {stats['considered']}\n"
+        f"  Archived:     [bold]{stats['archived']}[/bold]\n"
+        f"  Kept (note):  {stats['kept_recent_note']}\n"
+        f"  Kept (prio):  {stats['kept_priority']}\n"
+        f"  Kept (active):{stats['kept_active_stage']}"
+    )
+
+
+@cli.command(name="sweep-dropped")
+@click.option("--limit", default=200, type=int, show_default=True,
+              help="Max URLs to check per run (concurrency=6)")
+def sweep_dropped(limit: int):
+    """HEAD-check listing URLs and mark dropped ones.
+
+    Listings returning 404/410 get listing_status='dropped' + a CRMNote
+    + priority_flag bump. Runs are paged so a 8000-lead DB is swept
+    over ~40 invocations.
+    """
+    from pipeline.maintenance import mark_dropped_listings
+    console.print(f"[cyan]Checking up to {limit} listing URLs...[/cyan]")
+    stats = mark_dropped_listings(limit=limit)
+    console.print(
+        f"[green]✓ Dropped sweep complete[/green]\n"
+        f"  Checked:       {stats['checked']}\n"
+        f"  Dropped:       [bold red]{stats['dropped']}[/bold red]\n"
+        f"  Still alive:   {stats['alive']}\n"
+        f"  Errors:        {stats['errors']}\n"
+        f"  No-URL skips:  {stats['skipped_no_url']}"
+    )
+
+
+@cli.command(name="similar-to")
+@click.argument("lead_id", type=int)
+@click.option("--top", default=5, type=int, show_default=True)
+def similar_to_cmd(lead_id: int, top: int):
+    """Print the N most similar leads to a given lead id."""
+    from utils.similarity import similar_to
+    rows = similar_to(lead_id, top_n=top)
+    if not rows:
+        console.print("[yellow]No similar leads found (or model not built yet).[/yellow]")
+        return
+    for r in rows:
+        console.print(
+            f"  [bold]#{r.id}[/bold] · {r.score} pts · "
+            f"{r.typology or '?'} {r.zone or '?'} · "
+            f"{int(r.price or 0):,} EUR · {r.title or '—'}"
+        )
+
+
 @cli.command(name="import-csv")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False))
 @click.option("--source", default="csv_import", show_default=True,
