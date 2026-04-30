@@ -516,6 +516,77 @@ def enrich_websites(max_agencies: int):
     )
 
 
+@cli.command(name="daily-digest")
+@click.option("--top", default=10, type=int, show_default=True,
+              help="How many HOT leads to include")
+@click.option("--score-min", default=60, type=int, show_default=True)
+def daily_digest(top: int, score_min: int):
+    """Send the daily HOT-leads digest via SMTP/Telegram (whichever is enabled).
+
+    Picks the top ``top`` leads ordered by score desc + days_on_market desc
+    (urgency proxy) and routes them through the existing alerts.notifier.
+
+    Logs locally when no channel is configured — useful for manual review.
+    """
+    from sqlalchemy import desc
+    from alerts.notifier import Notifier
+    from storage.database import get_db
+    from storage.models import Lead
+
+    with get_db() as db:
+        leads = (
+            db.query(Lead)
+            .filter(Lead.archived == False)            # noqa: E712
+            .filter(Lead.is_demo  == False)            # noqa: E712
+            .filter(Lead.score    >= score_min)
+            .order_by(
+                desc(Lead.score),
+                desc(Lead.days_on_market),
+                desc(Lead.last_seen_at),
+            )
+            .limit(top)
+            .all()
+        )
+    if not leads:
+        console.print("[yellow]No HOT leads above threshold.[/yellow]")
+        return
+
+    console.print(
+        f"[cyan]Sending daily digest — top {len(leads)} HOT (score≥{score_min})...[/cyan]"
+    )
+    ok = Notifier().send_daily_report(leads)
+    console.print("[green]✓ Digest sent[/green]" if ok else "[red]✗ Failed[/red]")
+
+
+@cli.command()
+@click.option("--label", default=None, help="Tag appended to the filename")
+@click.option("--keep",  default=14, type=int, show_default=True,
+              help="How many recent snapshots to keep")
+def backup(label: str, keep: int):
+    """Take an online SQLite snapshot, zip it, and prune older copies.
+
+    Uses VACUUM INTO so the live DB keeps serving — no lock window.
+    Snapshots land in data/backups/imovela-YYYYMMDD-HHMM.db.zip.
+    """
+    from storage.backup import backup_now, prune_old_backups
+    console.print(f"[cyan]Snapshotting database (keep={keep})...[/cyan]")
+    res = backup_now(label=label)
+    if res.get("skipped"):
+        reason = res.get("reason") or res.get("error") or "unknown"
+        console.print(f"[yellow]Skipped: {reason}[/yellow]")
+        return
+    console.print(
+        f"[green]✓ Snapshot saved → {res['path']}[/green]\n"
+        f"  Size: {res['size_mb']} MB"
+    )
+    pruned = prune_old_backups(keep=keep)
+    if pruned["removed"]:
+        console.print(
+            f"  Pruned: [bold]{pruned['removed']}[/bold] old "
+            f"({pruned['freed_mb']} MB freed)"
+        )
+
+
 @cli.command(name="rebuild-fts")
 def rebuild_fts():
     """Rebuild the SQLite full-text search index from scratch.

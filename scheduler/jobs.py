@@ -87,6 +87,16 @@ class Scheduler:
             replace_existing=True,
         )
 
+        # Daily DB snapshot — runs at 04:30 local (well before the 08:00
+        # full pipeline kicks in), keeping a 14-day rolling window.
+        self._scheduler.add_job(
+            func=self._job_daily_backup,
+            trigger=CronTrigger(hour=4, minute=30),
+            id="daily_backup",
+            name="Daily SQLite snapshot",
+            replace_existing=True,
+        )
+
         self._scheduler.start()
         self._running = True
         log.info(
@@ -116,6 +126,7 @@ class Scheduler:
             "report":    self._job_daily_report,
             "premarket": self._job_premarket_scan,
             "nurture":   self._job_nurture_tick,
+            "backup":    self._job_daily_backup,
         }
         fn = steps.get(step)
         if fn:
@@ -225,6 +236,25 @@ class Scheduler:
             )
         except Exception as e:
             log.error("Nurture tick failed: {e}", e=e)
+
+    def _job_daily_backup(self) -> None:
+        """
+        Daily: zip + persist the SQLite DB and prune old copies (rolling 14d).
+        """
+        log.info("--- JOB: Daily backup ---")
+        try:
+            from storage.backup import backup_now, prune_old_backups
+            res = backup_now()
+            if res.get("skipped"):
+                log.info("Backup skipped: {r}", r=res.get("reason") or res.get("error"))
+                return
+            pruned = prune_old_backups(keep=14)
+            log.info(
+                "Backup OK: {p} ({s} MB) | pruned {n}",
+                p=res["path"], s=res["size_mb"], n=pruned["removed"],
+            )
+        except Exception as e:
+            log.error("Daily backup failed: {e}", e=e)
 
     @property
     def is_running(self) -> bool:

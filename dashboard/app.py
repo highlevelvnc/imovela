@@ -1684,6 +1684,18 @@ def label_emoji(label: str) -> str:
     return {"HOT": "🔴", "WARM": "🟡", "COLD": "🔵"}.get(label, "⚪")
 
 
+def _humanise_delta(td) -> str:
+    """timedelta → 'há 3 min' / 'há 2h' / 'há 1d' style."""
+    secs = int(td.total_seconds())
+    if secs < 60:
+        return "agora"
+    if secs < 3600:
+        return f"há {secs // 60} min"
+    if secs < 86_400:
+        return f"há {secs // 3600}h"
+    return f"há {secs // 86_400}d"
+
+
 def empty_state(icon: str = "◆", title: str = "Sem dados",
                 hint: str = "Corre o pipeline para alimentar o sistema.") -> None:
     """Render an animated empty-state card. Drop-in for `st.caption`."""
@@ -2126,10 +2138,12 @@ with st.sidebar:
     st.markdown('<div class="lbl-section">Navegacao</div>', unsafe_allow_html=True)
     page = st.radio("nav", [
         "&#128202;  Dashboard",
+        "&#128293;  HOT Focus",
         "&#127919;  Oportunidades",
         "&#128203;  CRM",
         "&#128205;  Mapa & BI",
         "&#128268;  Pre-Market",
+        "&#129518;  Sistema",
         "&#9881;  Motor",
         "&#128228;  Exportar",
     ], label_visibility="collapsed")
@@ -3112,6 +3126,271 @@ elif page == "&#128203;  CRM":
             unsafe_allow_html=True,
         )
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: HOT FOCUS — top 50 ordered by urgency, action-oriented
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "&#128293;  HOT Focus":
+
+    from sqlalchemy import desc as _desc
+    from storage.database import get_db as _get_db
+    from storage.models import Lead as _Lead
+
+    st.markdown(
+        '<div class="hero">'
+        '  <div class="hero-title">'
+        '    <span class="hero-title-accent">HOT Focus</span> '
+        '    <span style="color:var(--smoke);font-weight:500;">·</span> '
+        '    Onde gastar o teu próximo telefonema'
+        '  </div>'
+        '  <div class="hero-sub">'
+        '    Top 50 leads ordenados por <b>urgência composta</b>: '
+        '    score · queda de preço · dias parado · qualidade do contacto. '
+        '    Toques rápidos abaixo abrem chamada/WhatsApp/email diretamente.'
+        '  </div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ─── Filters bar ──────────────────────────────────────────────────────
+    fcol1, fcol2, fcol3 = st.columns([1, 1, 2])
+    with fcol1:
+        hot_score_min = st.slider("Score mínimo", 50, 100, 60, key="hot_score_min")
+    with fcol2:
+        hot_owner_only = st.checkbox(
+            "Só FSBO", value=True, key="hot_owner_only",
+            help="Excluir agências (cobertura cheia em 'Oportunidades').",
+        )
+    with fcol3:
+        st.caption(
+            f"Filtros adicionais herdados da sidebar: zona={zone_filter or 'Todas'} · "
+            f"tipologia={typo_filter or 'Todas'}"
+        )
+
+    with _get_db() as db:
+        q = (
+            db.query(_Lead)
+            .filter(_Lead.archived == False)            # noqa: E712
+            .filter(_Lead.is_demo  == False)            # noqa: E712
+            .filter(_Lead.score    >= hot_score_min)
+        )
+        if zone_filter:
+            q = q.filter(_Lead.zone == zone_filter)
+        if typo_filter:
+            q = q.filter(_Lead.typology == typo_filter)
+        if hot_owner_only:
+            q = q.filter(_Lead.owner_type == "fsbo")
+        # Ordering: priority_flag first (price drops), then score, then
+        # days_on_market (proxy for "the seller is impatient")
+        leads_hot = (
+            q.order_by(
+                _desc(_Lead.priority_flag),
+                _desc(_Lead.score),
+                _desc(_Lead.days_on_market),
+                _desc(_Lead.last_seen_at),
+            )
+            .limit(50)
+            .all()
+        )
+
+    if not leads_hot:
+        empty_state(
+            icon="🔥",
+            title="Nenhum lead HOT acima do critério.",
+            hint="Baixa o score mínimo ou desliga 'Só FSBO' para ver mais.",
+        )
+    else:
+        # Counter row + quick-stats
+        with_phone = sum(1 for l in leads_hot if l.contact_phone)
+        with_email = sum(1 for l in leads_hot if l.contact_email)
+        with_wa    = sum(1 for l in leads_hot if l.contact_whatsapp)
+        avg_score  = sum(l.score or 0 for l in leads_hot) / max(len(leads_hot), 1)
+        kp1, kp2, kp3, kp4, kp5 = st.columns(5)
+        with kp1: st.metric("Total",      len(leads_hot))
+        with kp2: st.metric("Telefone",   f"{with_phone}/{len(leads_hot)}")
+        with kp3: st.metric("Email",      f"{with_email}/{len(leads_hot)}")
+        with kp4: st.metric("WhatsApp",   f"{with_wa}/{len(leads_hot)}")
+        with kp5: st.metric("Score médio", f"{avg_score:.0f}")
+
+        st.divider()
+        # Compact action-rows — one card per lead with quick actions
+        for lead in leads_hot:
+            urgent_dot = (
+                '<span class="live-dot" style="margin-right:6px;"></span>'
+                if lead.priority_flag else ''
+            )
+            badges = []
+            if lead.priority_flag:
+                badges.append('<span class="badge badge-drop">🔻 PRICE DROP</span>')
+            if lead.owner_type == "fsbo":
+                badges.append('<span class="badge badge-owner">👤 FSBO</span>')
+            if lead.seller_super_flag:
+                badges.append('<span class="badge badge-warm">⚠ SUPER-SELLER</span>')
+            badges.append(badge_html(lead.score_label or "COLD"))
+            badges_html_str = " ".join(badges)
+
+            st.markdown(
+                f'<div class="card card-hot">'
+                f'  <div style="display:flex;align-items:center;gap:14px;margin-bottom:8px;">'
+                f'    <span class="score-orb orb-hot">{lead.score or 0}</span>'
+                f'    <div style="flex:1;">'
+                f'      <div style="font-size:.95rem;font-weight:700;color:var(--ice);'
+                f'                  margin-bottom:4px;line-height:1.3;">{urgent_dot}{(lead.title or "—")[:90]}</div>'
+                f'      <div style="font-size:.78rem;color:var(--smoke);">'
+                f'        #{lead.id} · {lead.typology or "?"} · {lead.zone or "?"} · '
+                f'        <span class="price">{fmt_price(lead.price)}</span>'
+                f'        {(" · " + str(lead.days_on_market) + "d on-market") if lead.days_on_market else ""}'
+                f'      </div>'
+                f'      <div style="margin-top:6px;">{badges_html_str}</div>'
+                f'    </div>'
+                f'  </div>',
+                unsafe_allow_html=True,
+            )
+            quick_actions_bar(
+                phone=lead.contact_phone,
+                email=lead.contact_email,
+                url=(lead.sources[0]["url"] if lead.sources else None),
+                whatsapp=lead.contact_whatsapp or lead.contact_phone,
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: SISTEMA — health, runs, backups, scheduler
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "&#129518;  Sistema":
+
+    import os as _os
+    from pathlib import Path as _Path
+    from datetime import datetime as _dt
+
+    st.markdown(
+        '<div class="hero">'
+        '  <div class="hero-title">'
+        '    <span class="hero-title-accent">Sistema</span> · Saúde operacional'
+        '  </div>'
+        '  <div class="hero-sub">'
+        '    Estado dos últimos runs, backups da base de dados, e jobs agendados.'
+        '  </div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ─── Run logs ─────────────────────────────────────────────────────────
+    st.markdown('<div class="lbl-section">Últimos runs</div>', unsafe_allow_html=True)
+    log_dir = _Path(__file__).resolve().parent.parent / "logs"
+    log_files = sorted(
+        log_dir.glob("run_*.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )[:8] if log_dir.exists() else []
+
+    if log_files:
+        rows = []
+        for f in log_files:
+            st_ = f.stat()
+            mtime = _dt.fromtimestamp(st_.st_mtime)
+            rows.append({
+                "Ficheiro":  f.name,
+                "Tamanho":   f"{st_.st_size / 1024:.0f} KB",
+                "Modificado": mtime.strftime("%d/%m %H:%M"),
+                "Idade":     _humanise_delta(_dt.now() - mtime),
+            })
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True, hide_index=True, height=240,
+        )
+
+        # Tail viewer for the most recent log
+        latest = log_files[0]
+        with st.expander(f"Tail · {latest.name}", expanded=False):
+            try:
+                content = latest.read_text(encoding="utf-8", errors="replace")
+                # Keep the last ~120 lines for readability
+                tail = "\n".join(content.splitlines()[-120:])
+                st.code(tail, language="log")
+            except Exception as e:
+                st.error(f"Falhou a ler log: {e}")
+    else:
+        empty_state(
+            icon="📂",
+            title="Sem logs ainda",
+            hint="Corre `python main.py run` para gerar atividade.",
+        )
+
+    st.divider()
+
+    # ─── Backups ──────────────────────────────────────────────────────────
+    st.markdown('<div class="lbl-section">Backups da base de dados</div>', unsafe_allow_html=True)
+    bcol1, bcol2 = st.columns([1, 3])
+    with bcol1:
+        if st.button("Criar snapshot agora", use_container_width=True):
+            try:
+                from storage.backup import backup_now, prune_old_backups
+                with st.spinner("Snapshotting..."):
+                    res = backup_now(label="manual")
+                    prune_old_backups(keep=14)
+                if res.get("skipped"):
+                    st.warning(f"Skipped: {res.get('reason') or res.get('error')}")
+                else:
+                    st.toast(f"✓ Snapshot {res['size_mb']} MB", icon="💾")
+                    st.cache_data.clear()
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Falhou: {e}")
+
+    with bcol2:
+        try:
+            from storage.backup import list_backups
+            backups = list_backups()
+        except Exception:
+            backups = []
+        if backups:
+            st.dataframe(
+                pd.DataFrame([{
+                    "Ficheiro":  b["name"],
+                    "Tamanho":   f"{b['size_mb']} MB",
+                    "Criado":    b["mtime"].strftime("%d/%m/%Y %H:%M"),
+                } for b in backups[:14]]),
+                use_container_width=True, hide_index=True, height=240,
+            )
+        else:
+            st.caption("Sem snapshots ainda. Cria o primeiro com o botão.")
+
+    st.divider()
+
+    # ─── DB stats ─────────────────────────────────────────────────────────
+    st.markdown('<div class="lbl-section">Base de dados</div>', unsafe_allow_html=True)
+    try:
+        from storage.database import get_db as _gdb
+        from storage.models import Lead as _L, RawListing as _R, CRMNote as _N
+        with _gdb() as db:
+            n_leads  = db.query(_L).count()
+            n_raw    = db.query(_R).count()
+            n_notes  = db.query(_N).count()
+            n_demo   = db.query(_L).filter(_L.is_demo == True).count()  # noqa: E712
+            n_arch   = db.query(_L).filter(_L.archived == True).count() # noqa: E712
+            n_phone  = db.query(_L).filter(
+                _L.contact_phone.isnot(None), _L.contact_phone != ""
+            ).count()
+        kc1, kc2, kc3, kc4 = st.columns(4)
+        with kc1: st.metric("Leads",        n_leads)
+        with kc2: st.metric("Raw listings", n_raw)
+        with kc3: st.metric("CRM notes",    n_notes)
+        with kc4: st.metric("Com telefone", n_phone)
+    except Exception as e:
+        st.error(f"Falha ao obter stats: {e}")
+
+    # DB file size
+    try:
+        from config.settings import settings as _s
+        if _s.is_sqlite:
+            db_path = _Path(_s.database_url.replace("sqlite:///", "", 1)).resolve()
+            if db_path.exists():
+                st.caption(
+                    f"📁 {db_path.name} · {db_path.stat().st_size / (1024*1024):.1f} MB · {db_path}"
+                )
+    except Exception:
+        pass
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: MAPA & BI — heatmap + funnel + agency leaderboard
