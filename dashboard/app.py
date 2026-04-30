@@ -4515,7 +4515,7 @@ elif page == "&#9881;  Motor":
     )
 
     # Run button
-    if st.button("▶  Executar Analise Completa de Mercado (todos os 6 passos)", use_container_width=True):
+    if st.button("▶  Executar Analise Completa de Mercado (todos os 6 passos)", use_container_width=True, type="primary"):
         prog  = st.progress(0, "A iniciar...")
         steps = [
             "Recolher dados...", "Normalizar e desduplicar...", "Identificar proprietarios...",
@@ -4537,6 +4537,209 @@ elif page == "&#9881;  Motor":
         except Exception as e:
             prog.empty()
             st.error(f"Erro: {e}")
+
+    st.divider()
+
+    # ─── Painel de operações granulares ───────────────────────────────────
+    # Cada cartão dispara um passo específico. Útil quando só precisas de
+    # re-treinar o classificador, refazer dedup de fotos, etc — sem repetir
+    # o pipeline todo.
+    st.markdown('<div class="lbl-section">Operações individuais</div>', unsafe_allow_html=True)
+    st.caption(
+        "Cada botão executa um único passo. Útil para correr o que falta "
+        "sem repetir o pipeline completo. Os logs de cada operação ficam "
+        "visíveis na aba Sistema."
+    )
+
+    OPERATIONS = [
+        # (label, descrição, runner-function-name, expected_minutes)
+        ("📡 Recolher novos leads",
+         "Scrape de OLX, Imovirtual, Idealista, Sapo, Custojusto + bancos + leilões.",
+         "scrape", 60),
+        ("🔄 Processar raw → leads",
+         "Normalize + dedupe + enrich + upsert.",
+         "process", 5),
+        ("🎯 Recalcular scores",
+         "Score 0-100 em 6 dimensões para todos os leads.",
+         "score", 2),
+        ("🔔 Disparar alertas HOT",
+         "Email/Telegram dos leads HOT (acima do threshold).",
+         "alerts", 1),
+        ("🔗 Cross-portal contact match",
+         "Propaga telefone/email entre listings do mesmo imóvel.",
+         "cross_match", 5),
+        ("🌐 Enrich agências (websites)",
+         "Visita os sites das agências para obter telefone+email.",
+         "enrich_websites", 10),
+        ("👥 Enrich seller profiles (OLX)",
+         "Detecta super-sellers e agências camufladas.",
+         "enrich_sellers", 8),
+        ("🤖 Treinar ML classifier",
+         "Re-treina o classificador FSBO/agency (87% accuracy).",
+         "train_classifier", 1),
+        ("🔁 Reclassificar owners",
+         "Aplica o ML em leads incertos (threshold 0.85).",
+         "reclassify", 2),
+        ("💸 Detectar quedas de preço",
+         "Marca leads com queda ≥5% nos últimos 14 dias.",
+         "price_drops", 1),
+        ("📍 Geocodar leads (Nominatim)",
+         "Resolve lat/lng com cache. ~1.1s por novo endereço.",
+         "geocode", 5),
+        ("🖼 Hash de imagens",
+         "Calcula pHash para dedup cross-portal.",
+         "hash_images", 5),
+        ("🔍 Dedup fotos cross-portal",
+         "Funde leads com fotos idênticas em portais diferentes.",
+         "dedup_photos", 1),
+        ("🏷 Tags de amenities",
+         "Extrai piscina/garagem/varanda/etc da descrição.",
+         "tag_amenities", 1),
+        ("⏰ Nurture tick",
+         "Cria reminders para leads parados (3/7/14d por fase).",
+         "nurture", 1),
+        ("🗄 Auto-archive stale",
+         "Arquiva leads sem updates há mais de 60 dias.",
+         "archive_stale", 1),
+        ("❌ Sweep dropped listings",
+         "HEAD-check de URLs — marca 404/410 como dropped.",
+         "sweep_dropped", 5),
+        ("💾 Snapshot da DB",
+         "Backup zipado em data/backups/.",
+         "backup", 1),
+        ("📰 Trend report PDF",
+         "Gera o relatório semanal em PDF.",
+         "trend_report", 1),
+        ("🔎 Rebuild FTS index",
+         "Reconstrói índice de pesquisa full-text.",
+         "rebuild_fts", 1),
+    ]
+
+    def _run_op(op_key: str) -> tuple[bool, str]:
+        """Run a single operation by key. Returns (ok, message)."""
+        try:
+            if op_key == "scrape":
+                from pipeline.runner import PipelineRunner
+                r = PipelineRunner().run_full()
+                return True, f"+{r.leads_created} novos · ↑{r.leads_updated} updated"
+            elif op_key == "process":
+                from pipeline.runner import PipelineRunner
+                r = PipelineRunner().process_raw(limit=2000)
+                return True, f"+{r.leads_created} criados · ↑{r.leads_updated} updated"
+            elif op_key == "score":
+                from scoring.scorer import Scorer
+                n = Scorer().score_all_pending()
+                return True, f"{n} leads pontuados"
+            elif op_key == "alerts":
+                from alerts.notifier import Notifier
+                n = Notifier().check_and_alert_hot_leads()
+                return True, f"{n} alertas enviados"
+            elif op_key == "cross_match":
+                from pipeline.runner import PipelineRunner
+                stats = PipelineRunner().run_cross_match()
+                return True, f"matched={stats.get('matched',0)} phone=+{stats.get('phone',0)}"
+            elif op_key == "enrich_websites":
+                from pipeline.runner import PipelineRunner
+                stats = PipelineRunner().run_website_enrichment()
+                return True, f"agencies_ok={stats.get('agencies_ok',0)} +phone={stats.get('phone',0)}"
+            elif op_key == "enrich_sellers":
+                from pipeline.seller_profile_enricher import SellerProfileEnricher
+                stats = SellerProfileEnricher().run()
+                return True, f"visited={stats['visited']} super={stats['super_flagged']}"
+            elif op_key == "train_classifier":
+                from pipeline.owner_classifier import train_and_save
+                stats = train_and_save()
+                return True, f"accuracy={stats.get('accuracy',0):.1%}" if stats.get("trained") else "Sem amostras suficientes"
+            elif op_key == "reclassify":
+                from pipeline.owner_classifier import reclassify_uncertain_leads
+                stats = reclassify_uncertain_leads(threshold=0.85)
+                if not stats.get("trained", True):
+                    return False, "Modelo não existe — treina primeiro"
+                return True, f"FSBO→agency={stats['fsbo_to_agency']} agency→FSBO={stats['agency_to_fsbo']}"
+            elif op_key == "price_drops":
+                from pipeline.price_drop_detector import PriceDropDetector
+                stats = PriceDropDetector().run()
+                return True, f"{stats['newly_flagged']} flagged como urgente"
+            elif op_key == "geocode":
+                from utils.geocoder import geocode_leads_backfill
+                stats = geocode_leads_backfill(limit=1500)
+                return True, f"nominatim={stats.get('nominatim',0)} cache={stats.get('cache',0)}"
+            elif op_key == "hash_images":
+                from utils.image_hasher import backfill_image_hashes
+                stats = backfill_image_hashes(limit=1000)
+                return True, f"{stats['hashed']} imagens hasheadas"
+            elif op_key == "dedup_photos":
+                from utils.image_hasher import photo_dedup_sweep
+                stats = photo_dedup_sweep(threshold=5)
+                return True, f"{stats['merged']} duplicados fundidos"
+            elif op_key == "tag_amenities":
+                from utils.amenity_tags import backfill_amenity_tags
+                stats = backfill_amenity_tags(limit=2000)
+                return True, f"{stats['tagged']} leads taggeados"
+            elif op_key == "nurture":
+                from pipeline.nurture import run_nurture_tick
+                stats = run_nurture_tick(min_gap_days=1)
+                return True, f"{stats['reminders_added']} reminders adicionados"
+            elif op_key == "archive_stale":
+                from pipeline.maintenance import auto_archive_stale
+                stats = auto_archive_stale(stale_days=60)
+                return True, f"{stats['archived']} arquivados"
+            elif op_key == "sweep_dropped":
+                from pipeline.maintenance import mark_dropped_listings
+                stats = mark_dropped_listings(limit=200)
+                return True, f"dropped={stats['dropped']} alive={stats['alive']}"
+            elif op_key == "backup":
+                from storage.backup import backup_now, prune_old_backups
+                res = backup_now(label="manual")
+                prune_old_backups(keep=14)
+                if res.get("skipped"):
+                    return False, res.get("error", "skipped")
+                return True, f"{res['size_mb']} MB · {res['path'].split('/')[-1]}"
+            elif op_key == "trend_report":
+                from reports.trend_pdf import generate_trend_report
+                path = generate_trend_report(days=7)
+                return True, f"PDF: {path.name}"
+            elif op_key == "rebuild_fts":
+                from storage.fts import rebuild_fts as _rb
+                stats = _rb()
+                if stats.get("skipped_non_sqlite"):
+                    return False, "FTS5 só em SQLite"
+                return True, f"{stats['indexed']} rows indexadas"
+            else:
+                return False, f"Operação desconhecida: {op_key}"
+        except Exception as e:
+            return False, f"{type(e).__name__}: {str(e)[:120]}"
+
+    # Render operations as a 4-column grid of action cards
+    op_cols_per_row = 2
+    rows = [OPERATIONS[i:i + op_cols_per_row] for i in range(0, len(OPERATIONS), op_cols_per_row)]
+    for row in rows:
+        cols = st.columns(op_cols_per_row)
+        for col, (label, desc, op_key, est_min) in zip(cols, row):
+            with col:
+                with st.container(border=False):
+                    st.markdown(
+                        f'<div class="card" style="padding:14px 16px;margin-bottom:6px;">'
+                        f'  <div style="font-weight:700;color:var(--ice);'
+                        f'              font-size:.92rem;margin-bottom:4px;">{label}</div>'
+                        f'  <div style="color:var(--smoke);font-size:.74rem;'
+                        f'              line-height:1.4;margin-bottom:8px;">{desc}</div>'
+                        f'  <div style="font-size:.65rem;color:var(--dust);'
+                        f'              font-family:Space Grotesk;letter-spacing:.4px;">'
+                        f'    ~{est_min} min'
+                        f'  </div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(f"Executar", key=f"op_{op_key}",
+                                 use_container_width=True):
+                        with st.spinner(f"A correr {label.split(' ', 1)[1]}..."):
+                            ok, msg = _run_op(op_key)
+                        if ok:
+                            st.toast(f"✓ {msg}", icon="✅")
+                            st.cache_data.clear()
+                        else:
+                            st.error(f"Falhou: {msg}")
 
     st.divider()
 
