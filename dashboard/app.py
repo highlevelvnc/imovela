@@ -1737,6 +1737,188 @@ def render_photo_gallery(lead) -> None:
         st.image(img, use_container_width=True)
 
 
+def render_lead_extras(lead, *, show_photo: bool = True,
+                       show_similar: bool = True,
+                       show_edit: bool = True,
+                       show_merge: bool = True) -> None:
+    """
+    Drop-in addon for any detail expander. Renders the four advanced
+    panels in tabs so the operator can browse without scrolling:
+
+      🖼  Foto    — listing image (cached 1h)
+      🔗  Similar — top 5 comparáveis
+      ✎   Editar  — inline form to fix fields
+      ⇆   Fundir  — merge with another lead by id
+
+    All tabs are best-effort — any failure logs and fades quietly so
+    the rest of the expander UI keeps rendering.
+    """
+    if not lead:
+        return
+    tabs = []
+    if show_photo:   tabs.append("🖼")
+    if show_similar: tabs.append("🔗 Similar")
+    if show_edit:    tabs.append("✎ Editar")
+    if show_merge:   tabs.append("⇆ Fundir")
+    if not tabs:
+        return
+
+    rendered = st.tabs(tabs)
+    idx = 0
+
+    if show_photo:
+        with rendered[idx]:
+            if getattr(lead, "image_url", None):
+                render_photo_gallery(lead)
+            else:
+                st.caption("Sem imagem para este lead.")
+        idx += 1
+
+    if show_similar:
+        with rendered[idx]:
+            render_similar_leads(lead.id, top_n=5)
+        idx += 1
+
+    if show_edit:
+        with rendered[idx]:
+            _render_edit_form(lead)
+        idx += 1
+
+    if show_merge:
+        with rendered[idx]:
+            _render_merge_form(lead)
+        idx += 1
+
+
+def _render_edit_form(lead) -> None:
+    """Inline editor for the most-frequently-corrected fields."""
+    from storage.database import get_db
+    from storage.models import Lead
+
+    with st.form(f"edit_form_{lead.id}", clear_on_submit=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            n_title = st.text_input("Título", value=lead.title or "")
+            n_zone  = st.text_input("Zona",   value=lead.zone or "")
+            n_typ   = st.text_input("Tipologia", value=lead.typology or "")
+            n_phone = st.text_input("Telefone", value=lead.contact_phone or "")
+        with c2:
+            n_price = st.number_input(
+                "Preço (€)",
+                value=float(lead.price or 0.0),
+                step=1000.0, format="%.0f",
+            )
+            n_email = st.text_input("Email", value=lead.contact_email or "")
+            n_name  = st.text_input("Nome contacto", value=lead.contact_name or "")
+            n_addr  = st.text_input("Morada", value=lead.address or "")
+        n_note = st.text_area(
+            "Razão da edição (vai para CRMNote)",
+            placeholder="Ex: Confirmei com proprietário, preço correcto é 285k.",
+        )
+        submitted = st.form_submit_button("💾 Guardar alterações", use_container_width=True)
+        if submitted:
+            try:
+                with get_db() as db:
+                    row = db.query(Lead).get(lead.id)
+                    if not row:
+                        st.error("Lead já não existe.")
+                        return
+                    row.title         = n_title or None
+                    row.zone          = n_zone or None
+                    row.typology      = n_typ or None
+                    row.price         = float(n_price) if n_price else None
+                    row.contact_phone = n_phone or None
+                    row.contact_email = (n_email or None) and n_email.lower()
+                    row.contact_name  = n_name or None
+                    row.address       = n_addr or None
+                    if n_note.strip():
+                        from storage.models import CRMNote
+                        from datetime import datetime as _dt
+                        db.add(CRMNote(
+                            lead_id=row.id,
+                            note=f"✎ Manual edit\n{n_note.strip()}",
+                            note_type="manual_edit",
+                            created_by="dashboard",
+                            created_at=_dt.utcnow(),
+                        ))
+                    db.commit()
+                st.toast("✓ Alterações guardadas", icon="💾")
+                st.cache_data.clear()
+                # Drop similarity index — title/zone may have changed
+                try:
+                    from utils.similarity import invalidate as _inv
+                    _inv()
+                except Exception:
+                    pass
+                st.rerun()
+            except Exception as e:
+                st.error(f"Falhou: {e}")
+
+
+def _render_merge_form(lead) -> None:
+    """Manual merge: input a duplicate lead id, archive it, append sources."""
+    from storage.database import get_db
+    from storage.models import Lead, CRMNote
+    from datetime import datetime as _dt
+
+    st.caption(
+        "Funde este lead com outro: o outro fica arquivado, "
+        "e os contactos do outro são adicionados aqui se estiverem em falta."
+    )
+    cm1, cm2 = st.columns([3, 1])
+    with cm1:
+        dup_id = st.number_input(
+            "ID do lead duplicado",
+            min_value=0, step=1, value=0,
+            key=f"merge_id_{lead.id}",
+        )
+    with cm2:
+        st.write("")
+        if st.button("⇆ Fundir", key=f"merge_btn_{lead.id}",
+                     use_container_width=True, type="primary"):
+            if not dup_id or dup_id == lead.id:
+                st.warning("Indica um ID diferente.")
+                return
+            try:
+                with get_db() as db:
+                    canonical = db.query(Lead).get(lead.id)
+                    duplicate = db.query(Lead).get(int(dup_id))
+                    if not canonical or not duplicate:
+                        st.error("Lead não encontrado.")
+                        return
+                    if duplicate.archived:
+                        st.info("Esse lead já está arquivado.")
+                        return
+                    # Merge sources
+                    can_src = canonical.sources
+                    seen = {(s.get("source"), s.get("url")) for s in can_src}
+                    for s in duplicate.sources:
+                        key = (s.get("source"), s.get("url"))
+                        if key not in seen:
+                            can_src.append(s); seen.add(key)
+                    canonical.sources = can_src
+                    # Promote missing contact fields
+                    for f in ("contact_phone", "contact_email",
+                              "contact_whatsapp", "contact_name", "agency_name"):
+                        if not getattr(canonical, f) and getattr(duplicate, f):
+                            setattr(canonical, f, getattr(duplicate, f))
+                    duplicate.archived  = True
+                    duplicate.crm_stage = "merged"
+                    db.add(CRMNote(
+                        lead_id=canonical.id,
+                        note=f"⇆ Fusão manual: lead #{duplicate.id} arquivado e fontes propagadas.",
+                        note_type="manual_merge",
+                        created_by="dashboard",
+                        created_at=_dt.utcnow(),
+                    ))
+                    db.commit()
+                st.toast(f"✓ Fundido com #{dup_id}", icon="⇆")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Falhou: {e}")
+
+
 def render_similar_leads(lead_id: int, top_n: int = 5) -> None:
     """
     Show 'similar to this' inline list. Best-effort — silently no-ops
@@ -2280,18 +2462,65 @@ with st.sidebar:
                     st.error(f"Falhou: {e}")
 
     st.divider()
+    st.markdown('<div class="lbl-section">Filtros rápidos</div>', unsafe_allow_html=True)
+    # ─── Smart filter presets ───────────────────────────────────────────
+    # Each preset writes a deterministic set of session_state keys that
+    # the standard filter widgets pick up on rerun. Click → all filters
+    # snap to the preset, no manual selection needed.
+    PRESETS: list[tuple[str, dict]] = [
+        ("🔥 FSBO HOT",       {"score_floor": 60,  "owner": "&#128100; Particular (FSBO)", "fts": ""}),
+        ("🏦 Bancos",         {"score_floor": 0,   "fts": "banco OR caixa OR millennium OR santander OR novobanco"}),
+        ("⚖ Leilões",         {"score_floor": 0,   "fts": "leil*"}),
+        ("⏰ Urgente",         {"score_floor": 50,  "fts": "urgente OR negociavel OR aceitamos"}),
+        ("📞 Com telefone",    {"contact": "&#128222; Com telefone", "score_floor": 50}),
+        ("✉ Com e-mail",      {"contact": "&#9993; Com email",      "score_floor": 50}),
+        ("🌅 Vista mar",      {"fts": '"vista mar" OR "vista para o mar"'}),
+        ("🧹 Limpar",         {"clear": True}),
+    ]
+
+    def _apply_preset(p: dict) -> None:
+        if p.get("clear"):
+            for k in (
+                "__fts_query_preset", "__preset_score", "__preset_owner",
+                "__preset_contact", "__preset_zone", "__preset_typology",
+            ):
+                st.session_state.pop(k, None)
+            return
+        if "fts" in p:
+            st.session_state["__fts_query_preset"] = p["fts"]
+        if "score_floor" in p:
+            st.session_state["__preset_score"] = p["score_floor"]
+        if "owner" in p:
+            st.session_state["__preset_owner"] = p["owner"]
+        if "contact" in p:
+            st.session_state["__preset_contact"] = p["contact"]
+
+    pcols = st.columns(2)
+    for i, (label, payload) in enumerate(PRESETS):
+        with pcols[i % 2]:
+            if st.button(label, use_container_width=True, key=f"preset_{i}"):
+                _apply_preset(payload)
+                st.cache_data.clear()
+                st.rerun()
+
+    st.divider()
     st.markdown('<div class="lbl-section">Filtros</div>', unsafe_allow_html=True)
     ZONES = ["Todas as zonas", "Lisboa", "Cascais", "Sintra", "Almada", "Seixal", "Sesimbra"]
     sel_zone = st.selectbox("Zona", ZONES)
     TYPOS = ["Todas as tipologias", "T0", "T1", "T2", "T3", "T4+", "Moradia"]
     sel_typology = st.selectbox("Tipologia", TYPOS)
     _OWNER_MODES = ["Todos", "&#128100; Particular (FSBO)", "&#127970; Agência", "&#127959; Promotor", "&#10067; Desconhecido"]
-    owner_mode = st.selectbox("Tipo vendedor", _OWNER_MODES)
+    _owner_default = _OWNER_MODES.index(st.session_state.get("__preset_owner", "Todos")) \
+        if st.session_state.get("__preset_owner") in _OWNER_MODES else 0
+    owner_mode = st.selectbox("Tipo vendedor", _OWNER_MODES, index=_owner_default)
     _LEAD_TYPE_MODES = ["Todos", "&#127968; FSBO (venda)", "&#128273; FRBO (arrendamento)", "&#128101; Active Owner", "&#127970; Agência", "&#128679; Promotor"]
     lead_type_mode = st.selectbox("Tipo de lead", _LEAD_TYPE_MODES)
     _CSOURCE_MODES = ["Todos", "Direto", "Agência / Site", "Cross-portal"]
     csource_mode = st.selectbox("Origem do contacto", _CSOURCE_MODES)
-    score_floor = st.slider("Pontuacao minima", 0, 100, 0)
+    score_floor = st.slider(
+        "Pontuacao minima", 0, 100,
+        st.session_state.get("__preset_score", 0),
+    )
     st.divider()
     if st.button("Actualizar oportunidades", use_container_width=True):
         st.cache_data.clear()
@@ -2573,6 +2802,99 @@ if page == "&#128202;  Dashboard":
                             st.rerun()
         st.divider()
 
+    # ─── Batch actions panel ──────────────────────────────────────────────
+    # Operator selects rows from the table below and runs one of:
+    #   move CRM stage · mass-tag · export selection
+    if not df.empty and "id" in df.columns:
+        with st.expander("⚡ Batch actions (multi-selecção)", expanded=False):
+            st.caption(
+                "Marca leads na tabela abaixo (até 100), depois aplica uma "
+                "ação de massa. As ações respeitam todos os filtros do sidebar."
+            )
+            # Compact selection grid
+            df_pick = df[[
+                "id", "score", "label", "typology", "zone",
+                "price", "is_owner",
+            ]].head(100).copy()
+            df_pick.insert(0, "✓", False)
+            edited = st.data_editor(
+                df_pick,
+                hide_index=True,
+                use_container_width=True,
+                disabled=[c for c in df_pick.columns if c != "✓"],
+                key="batch_picker",
+                height=320,
+            )
+            picked_ids = edited.loc[edited["✓"] == True, "id"].tolist()  # noqa: E712
+
+            if picked_ids:
+                st.success(f"{len(picked_ids)} leads selecionados")
+                bcol1, bcol2, bcol3 = st.columns(3)
+
+                with bcol1:
+                    new_stage = st.selectbox(
+                        "Mover para fase",
+                        ["—", "novo", "contactado", "negociacao", "ganho", "perdido"],
+                        key="batch_stage",
+                    )
+                    if new_stage != "—" and st.button(
+                        "Aplicar fase", use_container_width=True, key="batch_apply_stage",
+                    ):
+                        from crm.manager import CRMManager
+                        crm = CRMManager()
+                        moved = 0
+                        for lid in picked_ids:
+                            try:
+                                if crm.move_to_stage(int(lid), new_stage):
+                                    moved += 1
+                            except Exception:
+                                pass
+                        st.toast(f"✓ {moved} leads movidos", icon="📦")
+                        st.cache_data.clear()
+                        st.rerun()
+
+                with bcol2:
+                    if st.button("🔥 Marcar URGENTE",
+                                 use_container_width=True, key="batch_priority"):
+                        from storage.database import get_db
+                        from storage.models import Lead
+                        with get_db() as db:
+                            db.query(Lead).filter(Lead.id.in_(picked_ids)).update(
+                                {"priority_flag": True}, synchronize_session=False,
+                            )
+                            db.commit()
+                        st.toast(f"✓ {len(picked_ids)} marcados", icon="🔥")
+                        st.cache_data.clear()
+                        st.rerun()
+                    if st.button("🗄 Arquivar",
+                                 use_container_width=True, key="batch_archive"):
+                        from storage.database import get_db
+                        from storage.models import Lead
+                        with get_db() as db:
+                            db.query(Lead).filter(Lead.id.in_(picked_ids)).update(
+                                {"archived": True}, synchronize_session=False,
+                            )
+                            db.commit()
+                        st.toast(f"✓ {len(picked_ids)} arquivados", icon="🗄")
+                        st.cache_data.clear()
+                        st.rerun()
+
+                with bcol3:
+                    csv_data = (
+                        df[df["id"].isin(picked_ids)]
+                        .to_csv(index=False)
+                        .encode("utf-8")
+                    )
+                    st.download_button(
+                        "⬇ Exportar selecção (CSV)",
+                        data=csv_data,
+                        file_name=f"selection_{len(picked_ids)}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        key="batch_export",
+                    )
+            st.divider()
+
     # Top HOT leads
     st.markdown('<div class="lbl-section">Oportunidades Prioritarias</div>', unsafe_allow_html=True)
 
@@ -2639,6 +2961,75 @@ if page == "&#128202;  Dashboard":
         BRAND_VIOLET = "#a78bfa"
         BRAND_ROSE   = "#fb7185"
         BRAND_AMBER  = "#fbbf24"
+
+        # ─── TRENDS: 4 small charts over the last 30 days ─────────────────
+        st.markdown('<div class="lbl-section">Tendência (últimos 30 dias)</div>', unsafe_allow_html=True)
+        try:
+            from reports.trends import (
+                avg_score_per_day, contact_rate_per_day,
+                hot_share_per_day, leads_per_day,
+            )
+
+            def _line_chart(data: list[dict], y_key: str, color: str,
+                            title: str, suffix: str = "") -> go.Figure:
+                xs = [d["date"] for d in data]
+                ys = [d[y_key] for d in data]
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=xs, y=ys, mode="lines+markers",
+                    line=dict(color=color, width=2.5, shape="spline"),
+                    marker=dict(size=5, color=color,
+                                line=dict(width=1, color="rgba(255,255,255,.2)")),
+                    fill="tozeroy",
+                    fillcolor=color.replace(")", ",.12)").replace("rgb", "rgba")
+                              if color.startswith("rgb") else f"{color}1f",
+                    hovertemplate=f"{title}: <b>%{{y}}{suffix}</b><br>%{{x}}<extra></extra>",
+                ))
+                fig.update_layout(
+                    paper_bgcolor=BG, plot_bgcolor=BG,
+                    margin=dict(l=0, r=8, t=24, b=0),
+                    height=170, font=FNT, showlegend=False,
+                    title=dict(text=f"<b>{title}</b>", x=0.02, y=0.94,
+                               font=dict(size=12, color="#cbd5e1")),
+                    hoverlabel=dict(bgcolor="#0b1020",
+                                    bordercolor="rgba(255,255,255,.12)",
+                                    font=dict(family="Inter", color="#f8fafc")),
+                    xaxis=dict(gridcolor=GRD, showgrid=False, tickformat="%d %b"),
+                    yaxis=dict(gridcolor=GRD, showgrid=True, zeroline=False),
+                )
+                return fig
+
+            tcol1, tcol2 = st.columns(2)
+            with tcol1:
+                st.plotly_chart(
+                    _line_chart(leads_per_day(30), "count", BRAND_SKY,
+                                "Leads novos por dia"),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+                st.plotly_chart(
+                    _line_chart(avg_score_per_day(30), "avg_score", BRAND_VIOLET,
+                                "Score médio dos novos"),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+            with tcol2:
+                st.plotly_chart(
+                    _line_chart(hot_share_per_day(30), "hot_pct", BRAND_ROSE,
+                                "% HOT entre novos", suffix="%"),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+                st.plotly_chart(
+                    _line_chart(contact_rate_per_day(30), "contact_pct", BRAND_MINT,
+                                "% com telefone", suffix="%"),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                )
+        except Exception as _trend_err:
+            st.caption(f"⚠ Trend charts indisponíveis: {_trend_err}")
+
+        st.divider()
 
         ch1, ch2 = st.columns(2, gap="large")
         with ch1:
@@ -3215,6 +3606,10 @@ elif page == "&#128203;  CRM":
                             if note_txt.strip():
                                 crm.add_note(lead.id, note_txt.strip(), note_type)
                                 st.success("Interaccao registada ✓")
+
+                    # Photo / Similar / Edit / Merge tabs
+                    st.divider()
+                    render_lead_extras(lead)
 
     st.divider()
     st.markdown('<div class="lbl-section">Historico de Interaccoes</div>', unsafe_allow_html=True)
