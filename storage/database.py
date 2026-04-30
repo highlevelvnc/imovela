@@ -68,6 +68,7 @@ def init_db() -> None:
     _migrate_name_fields()
     _migrate_birthday_field()
     _migrate_seller_profile_fields()
+    _migrate_image_phash()
     log.info("Database initialised — {url}", url=settings.database_url)
 
 
@@ -373,6 +374,21 @@ def _migrate_birthday_field() -> None:
             log.info("Migration: added 'birthday' column to leads")
     except Exception:
         pass
+
+
+def _migrate_image_phash() -> None:
+    """
+    Idempotent migration: add ``image_phash`` for the photo dedup pass.
+    Stores the perceptual hash as 16-char hex; populated by the
+    ``utils.image_hasher`` backfill task and consumed by photo_dedup_sweep.
+    """
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN image_phash VARCHAR(20)"))
+            conn.commit()
+    except Exception:
+        pass     # column already exists
 
 
 def _migrate_seller_profile_fields() -> None:

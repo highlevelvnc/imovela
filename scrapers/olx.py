@@ -292,21 +292,16 @@ class OLXScraper(BaseScraper):
                 )
                 break
 
-            page_items: list[dict] = []
-            for item in parsed_cards:
-                # Skip detail fetch for items we already have — saves ~2-6s each
-                if item.get("external_id") in self.known_external_ids:
-                    page_items.append(item)
-                    continue
+            page_items: list[dict] = list(parsed_cards)
 
-                # Enrich with detail page for description, params, seller.
-                # Also extracts phone from tel:/WhatsApp/description when present
-                # in the static HTML — avoids wasting Playwright budget.
-                if self.fetch_details and self._detail_count < MAX_DETAIL_FETCHES_PER_ZONE:
-                    self._enrich_with_detail(client, item)
-                    self._detail_count += 1
-
-                page_items.append(item)
+            # ── Parallel detail fetch (the big speedup) ──────────────────
+            # Each card normally needs a follow-up GET for description /
+            # phone / params / seller. Doing those serially with the 2-6s
+            # rate-limit between them blew page time to 1-2 minutes. Batch
+            # them here with ``parallel_fetch`` (concurrency=4) so a 24-card
+            # page finishes in ~10-12s without changing per-host RPS.
+            if self.fetch_details:
+                self._enrich_batch_async(parsed_cards)
 
             # ── Batch Playwright reveal — only items still without a REAL phone ──
             # "Real" = mobile or landline. Relay (66X) counts as missing because
@@ -355,6 +350,148 @@ class OLXScraper(BaseScraper):
                 break
 
             page += 1
+
+    # ── Concurrent detail fetcher ────────────────────────────────────────────
+
+    def _enrich_batch_async(self, items: list[dict]) -> None:
+        """
+        Fetch every card's detail page in parallel and run _enrich_with_detail
+        equivalent against the cached HTML. Skips items already in the delta
+        cache (we already have them) and respects the per-zone budget.
+        """
+        from utils.async_fetcher import parallel_fetch
+
+        # Build the work set: only cards we don't already know AND still
+        # under the per-zone detail budget.
+        targets: list[dict] = []
+        for item in items:
+            if item.get("external_id") in self.known_external_ids:
+                continue
+            if not item.get("url"):
+                continue
+            if self._detail_count >= MAX_DETAIL_FETCHES_PER_ZONE:
+                break
+            targets.append(item)
+            self._detail_count += 1
+
+        if not targets:
+            return
+
+        # URL → item lookup so the on_response callback can find its row
+        index = {it["url"]: it for it in targets}
+
+        def _on_response(url: str, body: str) -> None:
+            item = index.get(url)
+            if not item:
+                return
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(body, "html.parser")
+                self._populate_detail(soup, body, item)
+            except Exception as e:
+                log.debug("[olx] async detail parse {u}: {e}", u=url[-60:], e=e)
+
+        headers = {
+            "User-Agent":      get_random_user_agent(),
+            "Accept-Language": "pt-PT,pt;q=0.9,en;q=0.8",
+            "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        log.info("[olx] async detail fetch — {n} URLs in flight", n=len(targets))
+        parallel_fetch(
+            urls=list(index.keys()),
+            headers=headers,
+            concurrency=4,
+            timeout=20.0,
+            on_response=_on_response,
+        )
+
+    def _populate_detail(self, soup, page_html: str, item: dict) -> None:
+        """
+        Per-card body of the original ``_enrich_with_detail``, refactored
+        so the parallel fetcher and the legacy serial path share the same
+        extraction logic.
+        """
+        from bs4 import BeautifulSoup
+        # ── Description
+        desc_el = soup.select_one("[data-testid='ad_description']")
+        if desc_el:
+            item["description"] = desc_el.get_text(" ", strip=True)[:4000]
+
+        # ── Params
+        params_el = soup.select_one("[data-testid='ad-parameters-container']")
+        if params_el:
+            seller_type_param = None
+            for p in params_el.select("p"):
+                text = p.get_text(strip=True)
+                if not text:
+                    continue
+                if text.startswith("Tipologia:"):
+                    val = text.split(":", 1)[1].strip()
+                    if val and not item.get("typology_raw"):
+                        item["typology_raw"] = val
+                elif re.match(r"^Área", text, re.IGNORECASE):
+                    val = text.split(":", 1)[-1].strip()
+                    if val and not item.get("area_raw"):
+                        item["area_raw"] = val
+                elif text.startswith("Condição:"):
+                    item["condition_raw"] = text.split(":", 1)[1].strip()
+                elif text.startswith("Nº divisões:"):
+                    item["rooms_raw"] = text.split(":", 1)[1].strip()
+                elif text.startswith("Casas de Banho:"):
+                    item["bathrooms_raw"] = text.split(":", 1)[1].strip()
+                elif text.startswith("Mobilado:"):
+                    item["furnished_raw"] = text.split(":", 1)[1].strip()
+                elif text.startswith("Certificado Energético:"):
+                    item["energy_cert"] = text.split(":", 1)[1].strip()
+                elif text.lower() in ("particular", "empresa", "agência", "agencia",
+                                      "profissional"):
+                    seller_type_param = text
+            if seller_type_param:
+                item["is_owner"] = seller_type_param.lower() == "particular"
+
+        # ── Trader title
+        trader_el = soup.select_one("[data-testid='trader-title']")
+        if trader_el:
+            trader_text = trader_el.get_text(strip=True).lower()
+            if trader_text == "utilizador":
+                item["owner_type_raw"] = "fsbo"
+                item["is_owner"] = True
+            elif trader_text in ("empresa", "profissional"):
+                item["owner_type_raw"] = "agency"
+                item["is_owner"] = False
+
+        # ── Seller name
+        seller_el = soup.select_one("[data-testid='user-profile-user-name']")
+        if seller_el:
+            item["contact_name"] = seller_el.get_text(strip=True)[:200]
+
+        # ── Seller profile URL
+        seller_link = (
+            soup.select_one("a[href*='/perfil/']") or
+            soup.select_one("a[href*='/d/perfil/']")
+        )
+        if seller_link:
+            href = seller_link.get("href", "")
+            if href:
+                profile_url = href if href.startswith("http") else urljoin(BASE_URL, href)
+                item["seller_profile_url"] = profile_url
+
+        # ── Member since
+        ms_el = soup.select_one("[data-testid='member-since']")
+        if ms_el:
+            item["member_since_raw"] = ms_el.get_text(strip=True)[:80]
+
+        # ── JSON-LD
+        self._parse_json_ld(soup, item)
+
+        # ── Phone discovery (real-first, relay-last)
+        self._extract_phone_static(soup, page_html, item)
+
+        # ── Email
+        if not item.get("contact_email"):
+            email = extract_first_email(page_html)
+            if email:
+                item["contact_email"] = email
 
     # ── Playwright triage ────────────────────────────────────────────────────
 

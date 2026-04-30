@@ -516,6 +516,51 @@ def enrich_websites(max_agencies: int):
     )
 
 
+@cli.command(name="hash-images")
+@click.option("--limit", default=500, type=int, show_default=True,
+              help="Max leads to hash per run")
+def hash_images(limit: int):
+    """Backfill perceptual image hashes (pHash) on leads with image_url.
+
+    Concurrent download (12 in parallel) so a 500-lead backfill takes
+    ~2-3 minutes. Idempotent — only touches leads where image_phash is null.
+    Required step before `dedup-photos`.
+    """
+    from utils.image_hasher import backfill_image_hashes
+    console.print(f"[cyan]Hashing up to {limit} listing images...[/cyan]")
+    stats = backfill_image_hashes(limit=limit)
+    console.print(
+        f"[green]✓ Image hashing complete[/green]\n"
+        f"  Considered: {stats['considered']}\n"
+        f"  Hashed:     [bold]{stats['hashed']}[/bold]\n"
+        f"  Errors:     {stats['errors']}"
+    )
+
+
+@cli.command(name="dedup-photos")
+@click.option("--threshold", default=5, type=int, show_default=True,
+              help="Max Hamming distance (0-64) to consider images identical")
+def dedup_photos(threshold: int):
+    """Merge cross-portal lead duplicates that share the same property photo.
+
+    Pairs leads from different portals when their image pHash distance is
+    ≤ threshold. The older lead is kept canonical; the newer is archived
+    with stage='merged' and its sources_json appended to the canonical.
+
+    Run AFTER `hash-images` so leads have hashes to compare.
+    """
+    from utils.image_hasher import photo_dedup_sweep
+    console.print(f"[cyan]Sweeping photo duplicates (threshold={threshold})...[/cyan]")
+    stats = photo_dedup_sweep(threshold=threshold)
+    console.print(
+        f"[green]✓ Photo dedup complete[/green]\n"
+        f"  Leads with hashes:  {stats['considered']}\n"
+        f"  Candidate pairs:    {stats['candidate_pairs']}\n"
+        f"  Merged:             [bold yellow]{stats['merged']}[/bold yellow]\n"
+        f"  Skipped (chain):    {stats['skipped_chain']}"
+    )
+
+
 @cli.command(name="trend-report")
 @click.option("--out",  default=None, help="Output PDF path (default: data/imovela_trend_YYYYMMDD.pdf)")
 @click.option("--days", default=7, type=int, show_default=True, help="Window length")

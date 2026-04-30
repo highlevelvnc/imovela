@@ -122,6 +122,12 @@ class Lead(Base):
     seller_member_since:   Mapped[Optional[str]] = mapped_column(String(80))
     seller_super_flag:     Mapped[bool]          = mapped_column(Boolean, default=False)
 
+    # ── Photo perceptual hash ────────────────────────────────────────────────
+    # Populated by ``utils.image_hasher.backfill_image_hashes`` from the
+    # first listing image. Consumed by ``photo_dedup_sweep`` to merge cross-
+    # portal duplicates that the fingerprint deduper can't catch.
+    image_phash:           Mapped[Optional[str]] = mapped_column(String(20), index=True)
+
     # ── Sources (JSON list) ───────────────────────────────────────────────────
     # Format: [{"source": "olx", "url": "...", "seen_at": "ISO datetime"}]
     # PostgreSQL migration: replace with JSONB column
