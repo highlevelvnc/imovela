@@ -561,6 +561,32 @@ def dedup_photos(threshold: int):
     )
 
 
+@cli.command(name="nurture-tick")
+@click.option("--min-gap-days", default=1, type=int, show_default=True,
+              help="Skip leads that received any note in the last N days")
+def nurture_tick(min_gap_days: int):
+    """Generate nurture-sequence reminder notes for stale pipeline leads.
+
+    Walks every active lead and creates a CRMNote reminder for those past
+    a stage-specific threshold (default: novo=1/3d, contactado=3/7/14d,
+    negociacao=2/5/10d). Override per-stage via NURTURE_<STAGE>_DAYS and
+    NURTURE_<STAGE>_TEMPLATE env vars.
+
+    Idempotent — running every hour is safe.
+    """
+    from pipeline.nurture import run_nurture_tick
+
+    console.print(f"[cyan]Running nurture tick (min_gap={min_gap_days}d)...[/cyan]")
+    stats = run_nurture_tick(min_gap_days=min_gap_days)
+    console.print(
+        f"[green]✓ Nurture tick complete[/green]\n"
+        f"  Active leads:        {stats['considered']}\n"
+        f"  Past threshold:      {stats['eligible']}\n"
+        f"  Skipped (recent):    {stats['skipped_recent_note']}\n"
+        f"  Reminders added:     [bold yellow]{stats['reminders_added']}[/bold yellow]"
+    )
+
+
 @cli.command(name="trend-report")
 @click.option("--out",  default=None, help="Output PDF path (default: data/imovela_trend_YYYYMMDD.pdf)")
 @click.option("--days", default=7, type=int, show_default=True, help="Window length")

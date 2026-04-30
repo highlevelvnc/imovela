@@ -2848,11 +2848,35 @@ elif page == "&#128203;  CRM":
     }
     stage_keys = list(stage_cfg.keys())
 
+    # Nurture pending counts per stage — small red dot on cards that need
+    # follow-up. Cached for 60s to avoid re-querying on every interaction.
+    @st.cache_data(ttl=60)
+    def _nurture_pending_cached() -> dict:
+        try:
+            from pipeline.nurture import pending_per_stage
+            return pending_per_stage()
+        except Exception:
+            return {}
+
+    nurture_pending = _nurture_pending_cached()
+
     kcols = st.columns(len(stage_cfg), gap="small")
     for col, (sk, (sl, sc)) in zip(kcols, stage_cfg.items()):
         with col:
+            pending_n = nurture_pending.get(sk, 0)
+            badge_html_str = (
+                f'<div style="position:absolute;top:8px;right:10px;'
+                f'background:rgba(251,113,133,.18);color:#fb7185;'
+                f'border:1px solid rgba(251,113,133,.4);border-radius:999px;'
+                f'padding:1px 7px;font-size:.62rem;font-weight:800;'
+                f'animation: glowPulse 2s infinite;">'
+                f'⏰ {pending_n}'
+                f'</div>'
+                if pending_n else ''
+            )
             st.markdown(
-                f'<div class="kanban-card" style="border-top:3px solid {sc};">'
+                f'<div class="kanban-card" style="border-top:3px solid {sc};position:relative;">'
+                f'{badge_html_str}'
                 f'<div style="font-size:2rem;font-weight:900;color:{sc};letter-spacing:-2px;">{summary.get(sk, 0)}</div>'
                 f'<div style="font-size:.66rem;font-weight:700;color:#56697e;text-transform:uppercase;letter-spacing:.5px;margin-top:2px;">{sl}</div>'
                 f'</div>',
@@ -2860,6 +2884,94 @@ elif page == "&#128203;  CRM":
             )
 
     st.divider()
+
+    # ─── View toggle: Kanban (drag-drop) | Lista detalhada ────────────────
+    view_mode = st.radio(
+        "view_mode_label",
+        ["📌 Kanban (arrastar)", "📋 Lista detalhada"],
+        index=0, horizontal=True, label_visibility="collapsed",
+    )
+
+    if view_mode.startswith("📌"):
+        # ─── KANBAN drag-drop board ──────────────────────────────────────
+        try:
+            from streamlit_sortables import sort_items
+        except ImportError:
+            st.warning(
+                "Drag-drop precisa de `streamlit-sortables`. "
+                "Corre `pip install -r requirements.txt`."
+            )
+            st.stop()
+
+        # Build column data — capped at 30 leads per column for snappy DnD.
+        # Each item label is "ID#nnn · score · typology · zone · price"
+        # so the user keeps context while dragging.
+        items_per_stage: list[dict] = []
+        id_to_lead: dict[int, object] = {}
+        for sk, (sl, _sc) in stage_cfg.items():
+            stage_leads = crm.get_leads_by_stage(sk)
+            if _demo_filter is not None:
+                stage_leads = [l for l in stage_leads if l.is_demo == _demo_filter]
+            stage_leads = stage_leads[:30]   # bound DOM size for performance
+            labels: list[str] = []
+            for lead in stage_leads:
+                emoji = label_emoji(lead.score_label or "COLD")
+                tag = (
+                    f"#{lead.id} {emoji} {lead.score}pts · "
+                    f"{(lead.typology or '?'):>3} {(lead.zone or '?')[:14]:<14} · "
+                    f"{fmt_price(lead.price)}"
+                )
+                labels.append(tag)
+                id_to_lead[lead.id] = lead
+            items_per_stage.append({"header": sl, "items": labels})
+
+        st.caption(
+            "Arrasta cartões entre colunas para mover de fase. "
+            "Atualizações são guardadas automaticamente."
+        )
+
+        # Render the sortable multi-container — labels are unique by lead.id
+        new_state = sort_items(
+            items_per_stage,
+            multi_containers=True,
+            direction="vertical",
+            key="crm_kanban_sort",
+        )
+
+        # Detect any item that moved → persist the new stage
+        if new_state:
+            moves = 0
+            new_index: dict[str, str] = {}   # label → stage_key
+            for col, sk in zip(new_state, stage_keys):
+                for label in col["items"]:
+                    new_index[label] = sk
+
+            # Compare against original layout
+            for col, sk in zip(items_per_stage, stage_keys):
+                for label in col["items"]:
+                    new_sk = new_index.get(label)
+                    if new_sk and new_sk != sk:
+                        # Parse lead.id from "#nnn ..."
+                        try:
+                            lead_id = int(label.split()[0].lstrip("#"))
+                        except Exception:
+                            continue
+                        try:
+                            crm.move_to_stage(lead_id, new_sk)
+                            moves += 1
+                        except Exception as e:
+                            st.error(f"#{lead_id} → {new_sk}: {e}")
+            if moves:
+                st.toast(
+                    f"✓ {moves} {'lead movido' if moves == 1 else 'leads movidos'}",
+                    icon="✅",
+                )
+                st.cache_data.clear()
+                st.rerun()
+
+        st.divider()
+        # Continue rendering the legacy "Detalhe por fase" section below
+        # (inside the same elif branch) so the operator can drill into a card
     nav_col, detail_col = st.columns([1, 3])
     with nav_col:
         sel_stage = st.radio("Fase:", stage_keys, format_func=lambda s: stage_cfg[s][0])

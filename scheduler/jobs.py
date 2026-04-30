@@ -77,6 +77,16 @@ class Scheduler:
             replace_existing=True,
         )
 
+        # Nurture tick — once an hour. Idempotent so repeated runs cost
+        # essentially nothing when no lead crossed a threshold yet.
+        self._scheduler.add_job(
+            func=self._job_nurture_tick,
+            trigger=IntervalTrigger(hours=1),
+            id="nurture_tick",
+            name="Lead nurture follow-up reminders",
+            replace_existing=True,
+        )
+
         self._scheduler.start()
         self._running = True
         log.info(
@@ -105,6 +115,7 @@ class Scheduler:
             "alerts":    self._job_hot_lead_check,
             "report":    self._job_daily_report,
             "premarket": self._job_premarket_scan,
+            "nurture":   self._job_nurture_tick,
         }
         fn = steps.get(step)
         if fn:
@@ -197,6 +208,23 @@ class Scheduler:
             )
         except Exception as e:
             log.error("Pre-market scan job failed: {e}", e=e)
+
+    def _job_nurture_tick(self) -> None:
+        """
+        Hourly: scan dormant leads and emit follow-up reminder notes.
+        Idempotent — safe to run frequently.
+        """
+        log.info("--- JOB: Nurture tick ---")
+        try:
+            from pipeline.nurture import run_nurture_tick
+            stats = run_nurture_tick(min_gap_days=1)
+            log.info(
+                "Nurture tick: {a} reminders added (eligible={e}, skipped={s})",
+                a=stats["reminders_added"], e=stats["eligible"],
+                s=stats["skipped_recent_note"],
+            )
+        except Exception as e:
+            log.error("Nurture tick failed: {e}", e=e)
 
     @property
     def is_running(self) -> bool:

@@ -41,6 +41,9 @@ matplotlib==3.9.0          # charts inside the PDF
 imagehash==4.3.1           # pHash for cross-portal duplicate detection
 Pillow>=10.0.0             # imagehash dependency, also used for download
 
+# ─── CRM Kanban drag-drop ────────────────────────────────────────────────────
+streamlit-sortables>=0.3.1   # SortableJS-backed drag-drop for the CRM board
+
 # ─── Notifications ───────────────────────────────────────────────────────────
 # email via smtplib (stdlib) — no extra dep needed
 # telegram:
