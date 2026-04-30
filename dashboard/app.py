@@ -2024,17 +2024,37 @@ def _match_csource(src: str | None, csource_type: str) -> bool:
 
 
 @st.cache_data(ttl=60)
-def load_leads(zone=None, typology=None, score_min=0, stage=None, label=None, is_demo=None, contact=None, owner_type=None, csource_type=None):
+def load_leads(zone=None, typology=None, score_min=0, stage=None, label=None,
+               is_demo=None, contact=None, owner_type=None, csource_type=None,
+               fts_query: str = ""):
     from storage.database import init_db, get_db
     from storage.repository import LeadRepo
     init_db()
+
+    # Full-text search shortcut: when the operator typed a query in the
+    # sidebar, pull matching ids first, then pass them as a hard filter to
+    # the repo's standard listing query so the rest of the UI's filters
+    # (zone, score, stage…) keep working on top of FTS results.
+    fts_ids: list[int] | None = None
+    fts_query = (fts_query or "").strip()
+    if fts_query:
+        try:
+            from storage.fts import search_lead_ids
+            fts_ids = search_lead_ids(fts_query, limit=300)
+        except Exception:
+            fts_ids = None
+
     with get_db() as db:
-        leads = LeadRepo(db).list_active(
+        repo = LeadRepo(db)
+        leads = repo.list_active(
             zone=zone, typology=typology,
             score_min=score_min, crm_stage=stage,
             label=label, is_demo=is_demo, contact=contact,
             owner_type=owner_type, limit=500,
         )
+        if fts_ids is not None:
+            keep = set(fts_ids)
+            leads = [l for l in leads if l.id in keep]
         rows = [{
             "id":               l.id,
             "is_demo":          l.is_demo,
@@ -2124,6 +2144,20 @@ with st.sidebar:
     _CONTACT_MODES = ["Todos", "&#128222; Com telefone", "&#128241; Só telemóvel real", "&#9993; Com email", "&#9989; Qualquer contacto", "&#10060; Sem contacto"]
     contact_mode = st.radio("contact_mode", _CONTACT_MODES, label_visibility="collapsed")
     exclude_relay = st.checkbox("Excluir relay/OLX (6xx)", value=False, help="Remove números temporários OLX que expiram quando o anúncio sai")
+
+    st.divider()
+    st.markdown('<div class="lbl-section">Pesquisa</div>', unsafe_allow_html=True)
+    fts_query = st.text_input(
+        "Pesquisa instantânea",
+        placeholder="Ex: T2 Lisboa piscina · 'Avenidas Novas'",
+        label_visibility="collapsed",
+        key="fts_query_input",
+        help=(
+            "Pesquisa rápida (FTS5). Operadores: AND OR NOT NEAR · "
+            'Aspas para frase: "Avenidas Novas" · '
+            "Acaba com * para prefix: apartament*"
+        ),
+    )
 
     st.divider()
     st.markdown('<div class="lbl-section">Filtros</div>', unsafe_allow_html=True)
@@ -2225,7 +2259,7 @@ elif csource_mode == "Cross-portal":
 if page == "&#128202;  Dashboard":
 
     stats = load_stats()
-    leads = load_leads(zone=zone_filter, typology=typo_filter, score_min=score_floor, is_demo=_demo_filter, contact=_contact_filter, owner_type=_owner_filter, csource_type=_csource_filter)
+    leads = load_leads(zone=zone_filter, typology=typo_filter, score_min=score_floor, is_demo=_demo_filter, contact=_contact_filter, owner_type=_owner_filter, csource_type=_csource_filter, fts_query=fts_query)
     if _lead_type_filter:
         leads = [l for l in leads if l.get("lead_type") == _lead_type_filter]
     if _mobile_only:
@@ -2614,6 +2648,7 @@ elif page == "&#127919;  Oportunidades":
         contact=_contact_filter,
         owner_type=_owner_filter,
         csource_type=_csource_filter,
+        fts_query=fts_query,
     )
     if only_owner: leads = [l for l in leads if l.get("owner_type") in ("fsbo", None) or l.get("is_owner")]
     if only_drop:  leads = [l for l in leads if (l.get("price_delta_pct") or 0) > 0]
@@ -3557,7 +3592,7 @@ elif page == "&#9881;  Motor":
     )
 
     stats = load_stats()
-    leads = load_leads(zone=zone_filter, typology=typo_filter, score_min=score_floor, is_demo=_demo_filter, contact=_contact_filter, owner_type=_owner_filter, csource_type=_csource_filter)
+    leads = load_leads(zone=zone_filter, typology=typo_filter, score_min=score_floor, is_demo=_demo_filter, contact=_contact_filter, owner_type=_owner_filter, csource_type=_csource_filter, fts_query=fts_query)
 
     # Pipeline flow visual
     st.markdown('<div class="lbl-section">Fluxo de Analise Automatica</div>', unsafe_allow_html=True)

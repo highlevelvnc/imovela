@@ -69,6 +69,7 @@ def init_db() -> None:
     _migrate_birthday_field()
     _migrate_seller_profile_fields()
     _migrate_image_phash()
+    _migrate_fts_index()
     log.info("Database initialised — {url}", url=settings.database_url)
 
 
@@ -389,6 +390,18 @@ def _migrate_image_phash() -> None:
             conn.commit()
     except Exception:
         pass     # column already exists
+
+
+def _migrate_fts_index() -> None:
+    """
+    Idempotent migration: ensure the SQLite FTS5 virtual table + triggers
+    exist for fast text search. No-op on Postgres.
+    """
+    try:
+        from storage.fts import ensure_fts
+        ensure_fts()
+    except Exception as e:
+        log.debug("FTS init skipped: {e}", e=e)
 
 
 def _migrate_seller_profile_fields() -> None:

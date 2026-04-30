@@ -516,6 +516,23 @@ def enrich_websites(max_agencies: int):
     )
 
 
+@cli.command(name="rebuild-fts")
+def rebuild_fts():
+    """Rebuild the SQLite full-text search index from scratch.
+
+    Use after bulk imports (initial backfill, migration) or whenever
+    the FTS index disagrees with the leads table. Typical run takes
+    a few seconds even on 50k leads.
+    """
+    from storage.fts import rebuild_fts as _rb
+    console.print("[cyan]Rebuilding leads_fts index...[/cyan]")
+    stats = _rb()
+    if stats.get("skipped_non_sqlite"):
+        console.print("[yellow]Postgres backend detected — FTS5 not applicable.[/yellow]")
+        return
+    console.print(f"[green]✓ FTS rebuilt — {stats['indexed']} rows indexed[/green]")
+
+
 @cli.command(name="hash-images")
 @click.option("--limit", default=500, type=int, show_default=True,
               help="Max leads to hash per run")
