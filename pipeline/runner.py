@@ -221,10 +221,19 @@ class PipelineRunner:
 
     # ── Process-only pipeline ─────────────────────────────────────────────────
 
-    def process_raw(self, source: str = None, limit: int = 1000) -> PipelineStats:
-        """Process all unprocessed RawListings through normalize → dedupe → enrich → upsert."""
+    def process_raw(self, source: str = None, limit: int = 1000,
+                    commit_every: int = 50) -> PipelineStats:
+        """
+        Process unprocessed RawListings through normalize → dedupe → enrich →
+        upsert. Commits the SQLite transaction every ``commit_every`` rows so
+        crashes don't lose all work and progress is visible in the DB while
+        the process is still running. Also keeps the WAL bounded.
+        """
         stats = PipelineStats()
-        log.info("Processing raw listings (source={s}, limit={l})", s=source or "all", l=limit)
+        log.info(
+            "Processing raw listings (source={s}, limit={l}, commit_every={c})",
+            s=source or "all", l=limit, c=commit_every,
+        )
 
         with get_db() as db:
             raw_repo = RawListingRepo(db)
@@ -233,12 +242,27 @@ class PipelineRunner:
             raw_listings = raw_repo.get_unprocessed(source=source, limit=limit)
             log.info("Found {n} unprocessed raw listings", n=len(raw_listings))
 
-            for raw in raw_listings:
+            since_commit = 0
+            for i, raw in enumerate(raw_listings, start=1):
                 try:
                     self._process_one(raw, lead_repo, raw_repo, stats)
                 except Exception as e:
                     log.error("Error processing raw_listing id={id}: {e}", id=raw.id, e=e)
                     stats.errors += 1
+                since_commit += 1
+                # Periodic commits — visible progress + bounded WAL
+                if since_commit >= commit_every:
+                    try:
+                        db.commit()
+                        log.info(
+                            "Progress {i}/{n} — +{c} new, ↑{u} updated, ✗{e} errors",
+                            i=i, n=len(raw_listings),
+                            c=stats.leads_created, u=stats.leads_updated, e=stats.errors,
+                        )
+                    except Exception as e:
+                        log.warning("Mid-batch commit failed: {e}", e=e)
+                        db.rollback()
+                    since_commit = 0
 
         stats.finish()
         return stats
