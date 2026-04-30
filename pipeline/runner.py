@@ -56,9 +56,11 @@ class PipelineStats:
 class PipelineRunner:
 
     def __init__(self):
+        from pipeline.change_detector import ChangeDetector
         self.normalizer = Normalizer()
         self.deduplicator = Deduplicator()
         self.enricher = Enricher()
+        self.change_detector = ChangeDetector()
 
     # ── Full pipeline: scrape + process ───────────────────────────────────────
 
@@ -263,6 +265,16 @@ class PipelineRunner:
 
         # 4. Upsert
         if existing:
+            # 4a. Detect title/desc/agency/phone changes BEFORE the upsert
+            #     overwrites the old values. Emits a CRMNote when a tracked
+            #     field meaningfully changed; bumps priority + score.
+            try:
+                changes = self.change_detector.detect(existing, enriched)
+                if changes:
+                    self.change_detector.emit_note(lead_repo.db, existing, changes)
+            except Exception as e:
+                log.debug("[change_detector] error on lead #{id}: {e}", id=existing.id, e=e)
+
             update_payload = self.deduplicator.build_update_payload(existing, enriched)
             lead_repo.update(existing, update_payload)
 

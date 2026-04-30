@@ -128,6 +128,12 @@ class Lead(Base):
     # portal duplicates that the fingerprint deduper can't catch.
     image_phash:           Mapped[Optional[str]] = mapped_column(String(20), index=True)
 
+    # ── Amenity tags ────────────────────────────────────────────────────────
+    # Comma-separated canonical tags ("piscina,garagem,vista_mar") populated
+    # by ``utils.amenity_tags.extract_amenities`` from title + description.
+    # Populated at upsert time by the normalizer + during initial backfill.
+    amenity_tags:          Mapped[Optional[str]] = mapped_column(String(400))
+
     # ── Sources (JSON list) ───────────────────────────────────────────────────
     # Format: [{"source": "olx", "url": "...", "seen_at": "ISO datetime"}]
     # PostgreSQL migration: replace with JSONB column

@@ -587,6 +587,53 @@ def backup(label: str, keep: int):
         )
 
 
+@cli.command(name="import-csv")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--source", default="csv_import", show_default=True,
+              help="Tag stored in discovery_source")
+def import_csv_cmd(path: str, source: str):
+    """Import leads from a CSV/Excel-style file. Schema-flexible.
+
+    Recognised columns (case + accent insensitive):
+      name, phone, email, whatsapp, title, description, zone, parish,
+      address, price, typology, area, agency, is_owner, url, notes
+    Anything else is preserved in sources_json.raw_csv.
+
+    Dedup: phone (canonical) → email → zone+typology+price (±5%).
+    """
+    from pipeline.csv_importer import import_csv as _imp
+    console.print(f"[cyan]Importing {path}...[/cyan]")
+    stats = _imp(path, source=source)
+    console.print(
+        f"[green]✓ Import complete[/green]\n"
+        f"  Read:        {stats['read']}\n"
+        f"  Created:     [bold green]{stats['created']}[/bold green]\n"
+        f"  Updated:     [bold]{stats['updated']}[/bold]\n"
+        f"  Skipped:     {stats['skipped_invalid']}\n"
+        f"  Errors:      {stats['errors']}"
+    )
+
+
+@cli.command(name="tag-amenities")
+@click.option("--limit", default=2000, type=int, show_default=True)
+def tag_amenities(limit: int):
+    """Backfill amenity tags (piscina/garagem/varanda/...) on existing leads.
+
+    Going forward every newly-normalised lead is tagged automatically by
+    the pipeline. This command is for the historical backlog that pre-dates
+    the column.
+    """
+    from utils.amenity_tags import backfill_amenity_tags
+    console.print(f"[cyan]Tagging up to {limit} leads with amenity keywords...[/cyan]")
+    stats = backfill_amenity_tags(limit=limit)
+    console.print(
+        f"[green]✓ Amenity backfill complete[/green]\n"
+        f"  Considered:    {stats['considered']}\n"
+        f"  Tagged:        [bold]{stats['tagged']}[/bold]\n"
+        f"  Skipped empty: {stats['skipped_empty']}"
+    )
+
+
 @cli.command(name="rebuild-fts")
 def rebuild_fts():
     """Rebuild the SQLite full-text search index from scratch.

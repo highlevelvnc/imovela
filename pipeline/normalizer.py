@@ -439,6 +439,26 @@ class Normalizer:
         result["first_name"] = first or None
         result["last_name"] = last or None
 
+    @staticmethod
+    def _attach_amenity_tags(result: dict) -> None:
+        """
+        Compute amenity tags from title + description and write the
+        canonical comma-separated string to ``result['amenity_tags']``.
+        Called once per normalized lead so every fresh row carries tags
+        without a separate backfill pass.
+        """
+        try:
+            from utils.amenity_tags import extract_amenities, format_tags
+            blob = " ".join(filter(None, [
+                result.get("title") or "",
+                result.get("description") or "",
+            ]))
+            tags = extract_amenities(blob)
+            if tags:
+                result["amenity_tags"] = format_tags(tags)
+        except Exception:
+            pass
+
     def normalize(self, source: str, raw: dict) -> Optional[dict]:
         """
         Dispatch to per-source normalizer.
@@ -500,6 +520,9 @@ class Normalizer:
                 self._split_name(result)
                 if "birthday" not in result:
                     result["birthday"] = raw.get("birthday")
+                # Attach amenity tags (uses title + description after
+                # per-source normalization has populated them).
+                self._attach_amenity_tags(result)
             return result
         except Exception as e:
             log.error("Normalizer error for source={s}: {e}", s=source, e=e)

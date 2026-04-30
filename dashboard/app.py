@@ -4069,12 +4069,57 @@ elif page == "&#128228;  Exportar":
 
     st.markdown(
         '<div style="padding:1.5rem 0 1.2rem;border-bottom:1px solid #1a2640;margin-bottom:1.5rem;">'
-        '<div style="font-size:.62rem;font-weight:700;color:#3b82f6;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Exportar</div>'
-        '<div style="font-size:1.55rem;font-weight:900;color:#f1f5f9;">Exportar Leads para o Cliente</div>'
-        '<div style="font-size:.82rem;color:#56697e;margin-top:4px;">Gerar listas prontas a entregar — filtros do sidebar aplicados automaticamente</div>'
+        '<div style="font-size:.62rem;font-weight:700;color:#3b82f6;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Exportar / Importar</div>'
+        '<div style="font-size:1.55rem;font-weight:900;color:#f1f5f9;">Trocar dados com o cliente</div>'
+        '<div style="font-size:.82rem;color:#56697e;margin-top:4px;">Exportar listas prontas · importar contactos antigos do CRM</div>'
         '</div>',
         unsafe_allow_html=True,
     )
+
+    # ── CSV Import — bring-your-own-leads ────────────────────────────────
+    with st.expander("📥 Importar leads de CSV / Excel exportado", expanded=False):
+        st.caption(
+            "Aceita qualquer CSV com colunas comuns (nome, telefone, email, "
+            "preço, zona, tipologia, etc). Schema-flexível — colunas extra "
+            "ficam guardadas no histórico do lead. Dedup automático por "
+            "telefone → email → zona+tipologia+preço."
+        )
+        uploaded = st.file_uploader(
+            "Ficheiro CSV", type=["csv", "txt"],
+            key="csv_import_uploader",
+            label_visibility="collapsed",
+        )
+        ic1, ic2 = st.columns([1, 3])
+        with ic1:
+            csv_source = st.text_input(
+                "Tag origem", value="csv_import",
+                help="Aparece em discovery_source",
+            )
+        with ic2:
+            if uploaded and st.button(
+                f"Importar {uploaded.name}", type="primary",
+                use_container_width=True, key="csv_import_btn",
+            ):
+                from pipeline.csv_importer import import_csv as _imp
+                with st.spinner("A importar..."):
+                    try:
+                        stats = _imp(uploaded.getvalue(), source=csv_source or "csv_import")
+                        st.toast(
+                            f"+{stats['created']} novos · ↑{stats['updated']} atualizados",
+                            icon="📥",
+                        )
+                        st.success(
+                            f"Lidos {stats['read']} · "
+                            f"{stats['created']} criados · "
+                            f"{stats['updated']} atualizados · "
+                            f"{stats['skipped_invalid']} skipped · "
+                            f"{stats['errors']} erros"
+                        )
+                        st.cache_data.clear()
+                    except Exception as e:
+                        st.error(f"Falhou: {e}")
+
+    st.divider()
 
     # ── Row 1: Client-ready exports ──────────────────────────────────────
     ec1, ec2 = st.columns(2, gap="large")

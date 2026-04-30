@@ -69,6 +69,7 @@ def init_db() -> None:
     _migrate_birthday_field()
     _migrate_seller_profile_fields()
     _migrate_image_phash()
+    _migrate_amenity_tags()
     _migrate_fts_index()
     log.info("Database initialised — {url}", url=settings.database_url)
 
@@ -390,6 +391,17 @@ def _migrate_image_phash() -> None:
             conn.commit()
     except Exception:
         pass     # column already exists
+
+
+def _migrate_amenity_tags() -> None:
+    """Idempotent migration: add ``amenity_tags`` for keyword-extracted features."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE leads ADD COLUMN amenity_tags VARCHAR(400)"))
+            conn.commit()
+    except Exception:
+        pass
 
 
 def _migrate_fts_index() -> None:
