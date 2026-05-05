@@ -785,6 +785,25 @@ def nurture_tick(min_gap_days: int):
     )
 
 
+@cli.command(name="export-cliente")
+@click.option("--out", default=None, help="Path do XLSX (default: data/directriz_cliente_YYYYMMDD_HHMM.xlsx)")
+def export_cliente(out: str):
+    """Gera o XLSX no formato exato do briefing 'Directriz scraping' do cliente.
+
+    4 sheets: Básico · FSBO_FRBO · Linkedin · Standvirtual.
+    Filtros automáticos:
+      - só particulares (is_owner) com telefone
+      - só nas 7 zonas do cliente: Almada/Seixal/Sesimbra +
+        Lisboa/Oeiras/Cascais/Sintra (com freguesias de Lisboa)
+      - LinkedIn inclui também EUA + Inglaterra
+      - Standvirtual filtra >= 15.000 €
+    """
+    from reports.client_export import build_client_xlsx
+    console.print("[cyan]A construir entregável do cliente...[/cyan]")
+    path = build_client_xlsx(output_path=out)
+    console.print(f"[green]✓ Entregável guardado → {path}[/green]")
+
+
 @cli.command(name="trend-report")
 @click.option("--out",  default=None, help="Output PDF path (default: data/imovela_trend_YYYYMMDD.pdf)")
 @click.option("--days", default=7, type=int, show_default=True, help="Window length")

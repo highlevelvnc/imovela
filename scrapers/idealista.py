@@ -212,11 +212,67 @@ def _build_zone_urls(path: str) -> dict[str, str]:
     return {key: f"{BASE_URL}/{path}/{slug}/" for key, slug in _ZONE_KEYS.items()}
 
 
-ZONE_URLS:        dict[str, str] = _build_zone_urls("comprar-casas")
-ZONE_RENTAL_URLS: dict[str, str] = _build_zone_urls("arrendar-casas")
+# ── Categories — expanded for the client briefing ────────────────────────────
+# The client asked for FSBO across 8 property categories. Each maps to an
+# Idealista URL prefix (verified live 2026-05). Zones are interpolated via
+# _build_zone_urls(prefix). Pagination + selectors are identical across
+# categories — Idealista uses one card template for all of them.
+#
+# When SCRAPE_RENTALS is True, the matching `arrendar-*` prefix is also
+# scraped, giving the client's FRBO list on OLX/Imovirtual a structured
+# parallel for cross-portal dedup.
+
+BUY_CATEGORIES: tuple[str, ...] = (
+    "comprar-casas",                        # houses + apartments
+    "comprar-garagens",                     # parking spaces
+    "comprar-escritorios",                  # offices
+    "comprar-locais",                       # commercial spaces
+    "comprar-armazens-naves-industriais",   # warehouses / industrial
+    "comprar-terrenos",                     # land plots
+    "comprar-edificios",                    # full buildings
+    # Note: "arrecadações" (storage rooms) sit under garagens on Idealista,
+    # so they are already covered by the comprar-garagens path.
+)
+
+RENT_CATEGORIES: tuple[str, ...] = (
+    "arrendar-casas",
+    "arrendar-escritorios",
+    "arrendar-locais",
+    "arrendar-armazens-naves-industriais",
+    "arrendar-terrenos",
+)
+
+
+def _build_category_zone_urls(buy_or_rent: str) -> dict[str, str]:
+    """Return {zone: list[url]} flattened to the legacy {zone: url} interface.
+
+    Older callers expect ZONE_URLS[zone] = single string. We keep the legacy
+    dict for that compatibility (using comprar-casas / arrendar-casas) and
+    expose the full per-category list separately for the iterator.
+    """
+    if buy_or_rent == "buy":
+        return _build_zone_urls("comprar-casas")
+    return _build_zone_urls("arrendar-casas")
+
+
+def _all_category_urls(zone: str, buy_or_rent: str) -> list[str]:
+    """Return the full URL list for a zone across every category."""
+    cats = BUY_CATEGORIES if buy_or_rent == "buy" else RENT_CATEGORIES
+    slug = _ZONE_KEYS.get(zone)
+    if not slug:
+        return []
+    return [f"{BASE_URL}/{cat}/{slug}/" for cat in cats]
+
+
+ZONE_URLS:        dict[str, str] = _build_category_zone_urls("buy")
+ZONE_RENTAL_URLS: dict[str, str] = _build_category_zone_urls("rent")
 
 # Set False to disable rental scraping (e.g. during recovery / testing)
 SCRAPE_RENTALS: bool = True
+
+# Set False to scrape ONLY casas (legacy behaviour). Default True activates
+# the 7-category sweep the client asked for.
+SCRAPE_ALL_CATEGORIES: bool = True
 
 
 class IdealistaScraper(BaseScraper):
@@ -253,15 +309,26 @@ class IdealistaScraper(BaseScraper):
             log.debug("[idealista] zone={z} is a Lisboa freguesia — skipping", z=zone)
             return
 
-        # Build the list of URLs to scrape: buy always first, rental optional
+        # Build the list of URLs to scrape. When SCRAPE_ALL_CATEGORIES is
+        # active, every category in BUY_CATEGORIES + RENT_CATEGORIES is
+        # iterated for the zone — this produces the FSBO list across the
+        # 7 property types the client requested (casas, garagens, escritórios,
+        # locais comerciais, armazéns, terrenos, edifícios).
         urls_to_scrape: list[tuple[str, str]] = []  # (label, url)
-        buy_url = ZONE_URLS.get(zone)
-        if buy_url:
-            urls_to_scrape.append(("buy", buy_url))
-        if SCRAPE_RENTALS:
-            rental_url = ZONE_RENTAL_URLS.get(zone)
-            if rental_url:
-                urls_to_scrape.append(("rent", rental_url))
+        if SCRAPE_ALL_CATEGORIES:
+            for url in _all_category_urls(zone, "buy"):
+                urls_to_scrape.append(("buy", url))
+            if SCRAPE_RENTALS:
+                for url in _all_category_urls(zone, "rent"):
+                    urls_to_scrape.append(("rent", url))
+        else:
+            buy_url = ZONE_URLS.get(zone)
+            if buy_url:
+                urls_to_scrape.append(("buy", buy_url))
+            if SCRAPE_RENTALS:
+                rental_url = ZONE_RENTAL_URLS.get(zone)
+                if rental_url:
+                    urls_to_scrape.append(("rent", rental_url))
 
         total_yielded = 0
 

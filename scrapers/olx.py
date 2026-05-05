@@ -125,6 +125,13 @@ ZONE_SLUGS: dict[str, str] = {
 # Set False to disable rental scraping (e.g. during recovery / testing)
 SCRAPE_RENTALS: bool = True
 
+# When True, the rental ("arrendamento") path is scraped FIRST and its
+# Playwright phone-reveal budget is consumed before the buy path. The
+# client's FRBO list comes exclusively from OLX rentals — prioritising
+# that path means rental leads dominate the Playwright reveals when
+# the budget is tight.
+FRBO_FIRST: bool = True
+
 # External portal domains to skip (handled by dedicated scrapers)
 EXTERNAL_DOMAINS = frozenset({
     "imovirtual.com",
@@ -226,15 +233,19 @@ class OLXScraper(BaseScraper):
         self._pw_phone_count = 0   # reset per zone — shared across buy + rent
         self._detail_count   = 0   # shared across buy + rent
 
-        # ── Buy listings ──────────────────────────────────────────────────────
-        buy_base = f"{BASE_URL}/imoveis/q-{slug}"
-        yield from self._scrape_listing_path(client, zone, buy_base, "buy", pw_limit)
+        buy_base    = f"{BASE_URL}/imoveis/q-{slug}"
+        rental_base = f"{BASE_URL}/imoveis/q-arrendamento-{slug}"
 
-        # ── Rental listings (FRBO) ────────────────────────────────────────────
-        if SCRAPE_RENTALS:
-            rental_base = f"{BASE_URL}/imoveis/q-arrendamento-{slug}"
-            log.debug("[olx] zone={z} scraping rentals", z=zone)
+        if FRBO_FIRST and SCRAPE_RENTALS:
+            # ── Rental first (client's FRBO list source) ──────────────────
+            log.debug("[olx] zone={z} FRBO-first — scraping rentals first", z=zone)
             yield from self._scrape_listing_path(client, zone, rental_base, "rent", pw_limit)
+            yield from self._scrape_listing_path(client, zone, buy_base,    "buy",  pw_limit)
+        else:
+            # Legacy ordering — buy then rent
+            yield from self._scrape_listing_path(client, zone, buy_base, "buy", pw_limit)
+            if SCRAPE_RENTALS:
+                yield from self._scrape_listing_path(client, zone, rental_base, "rent", pw_limit)
 
     def _scrape_listing_path(
         self,

@@ -54,15 +54,28 @@ SEARCH_KEYWORDS: list[str] = [
     "investimento imobiliário",
 ]
 
-# LinkedIn geo URN IDs for Portuguese locations
-# These are approximate — LinkedIn geo IDs need to be validated
+# LinkedIn geo URN IDs.
+# Per the client briefing (Directriz scraping.xlsx, sheet "Linkedin"),
+# the target geographies are the 7 PT concelhos PLUS the United States
+# and the United Kingdom — the client's overseas networks.
 ZONE_GEO_URNS: dict[str, str] = {
+    # Portuguese concelhos — all map to the Greater Lisbon Area URN since
+    # LinkedIn doesn't expose municipality-level geo URNs publicly.
     "Lisboa":   "105723847",   # Greater Lisbon Area
-    "Cascais":  "105723847",   # Uses Lisbon area (Cascais is within)
-    "Sintra":   "105723847",   # Uses Lisbon area
-    "Almada":   "105723847",   # Uses Lisbon area (Setúbal district)
-    "Seixal":   "105723847",   # Uses Lisbon area
-    "Sesimbra": "105723847",   # Uses Lisbon area
+    "Cascais":  "105723847",
+    "Sintra":   "105723847",
+    "Almada":   "105723847",
+    "Seixal":   "105723847",
+    "Sesimbra": "105723847",
+    "Oeiras":   "105723847",   # added 2026-05 per client list
+
+    # International expansion — client networks in EUA + Inglaterra
+    "EUA":         "103644278",  # United States
+    "USA":         "103644278",
+    "Estados-Unidos": "103644278",
+    "Inglaterra":  "101165590",  # United Kingdom
+    "UK":          "101165590",
+    "Reino-Unido": "101165590",
 }
 
 # Conservative limits to avoid LinkedIn account suspension

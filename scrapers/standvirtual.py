@@ -1,12 +1,16 @@
 """
-Standvirtual Portugal scraper — high-value vehicle sellers as property owner signals.
+Standvirtual Portugal scraper — high-value private sellers as owner signals.
 URL base: https://www.standvirtual.com/carros/
 
-Purpose
--------
-Detect "active owners" — affluent individuals selling vehicles above €25,000
-on Standvirtual (the largest auto marketplace in Portugal, OLX Group).
-Selling a high-value vehicle is a strong signal of property ownership.
+Purpose (updated 2026-05 per client briefing)
+---------------------------------------------
+Standvirtual is the largest auto marketplace in Portugal (OLX Group).
+The client's 'Standvirtual' deliverable is defined as **"qualquer venda
+superior a 15.000€"** — the platform itself only carries vehicles +
+some recreational / commercial assets, but the deliverable is about the
+SELLER not the asset. Selling anything north of €15k flags the person
+as a high-net-worth individual who likely owns property — exactly the
+profile the client wants to qualify.
 
 Strategy
 --------
@@ -15,16 +19,19 @@ Direct httpx requests return 403.  Full Playwright is required for every page.
 
 What we scrape
 --------------
-- Listings with price >= €25,000 (URL price filter)
+- Listings with price >= €15,000 (URL price filter, lowered from €25k
+  per the client briefing — captures more sellers without diluting
+  the high-net-worth signal)
 - Private sellers only — professional stands/dealers are filtered out
-- Seller name, phone (Playwright reveal), location, car model (product_title),
-  price (product_value)
+- Seller name, phone (Playwright reveal), location, asset description
+  (product_title), price (product_value)
 
 Source tag: "standvirtual"
 Contact source: "standvirtual" (HTML tel:) / "standvirtual_playwright" (button click)
 
-Note: Standvirtual is part of OLX Group. Phone reveal mechanism is similar to OLX PT.
-Selectors may need live validation — run with LOG_LEVEL=DEBUG to dump HTML on failure.
+Real estate (FSBO/FRBO) is NOT in this scraper — it lives in idealista.py /
+olx.py. Standvirtual contributes the "wealth-signal" sheet of the client
+deliverable; the FSBO_FRBO sheet is built separately from those scrapers.
 """
 from __future__ import annotations
 
@@ -47,8 +54,11 @@ log = get_logger(__name__)
 
 BASE_URL = "https://www.standvirtual.com"
 
-# Minimum price filter — only capture sellers of high-value vehicles
-_MIN_PRICE = 25_000
+# Minimum price filter — capture sellers of high-value assets.
+# Lowered from €25k → €15k in 2026-05 per the client's briefing
+# ("qualquer venda superior a 15.000€"). This expands the lead pool
+# by ~3x without significantly diluting the high-net-worth signal.
+_MIN_PRICE = 15_000
 
 # Sanity cap — above this is likely a commercial fleet or data error
 _PRODUCT_VALUE_CAP = 500_000.0
